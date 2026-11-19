@@ -39,6 +39,7 @@
       const rows = indexText.split('\n');
       this.n = rows.length;
       this.lines = rows.map(encode);
+      this.first = rows.map(r => r.split(' ').map(w => w[0] || '').join(''));
       this.weights = Float32Array.from(this.lines.map(weightOf));
       // line -> shabad
       this.lineShabad = new Int32Array(this.n);
@@ -118,6 +119,27 @@
     }
 
     weight(winStr) { return weightOf(encode(winStr)); }
+
+    // First-letter search. sets: array of strings, each the allowed skeleton letters for one word.
+    letters(sets, opts = {}) {
+      const max = opts.max || 40, srcOk = opts.sources;
+      if (!sets.length) return [];
+      const body = sets.map(x => '[' + x + ']').join('');
+      const reStart = new RegExp('^' + body), reAny = new RegExp(body);
+      const rank = { 1: 0, 3: 1, 2: 2, 4: 3, 5: 4, 6: 4, 7: 4, 8: 4, 12: 5 };
+      const out = [];
+      for (let l = 0; l < this.n; l++) {
+        const f = this.first[l];
+        if (f.length < sets.length) continue;
+        const start = reStart.test(f);
+        if (!start && (opts.startOnly || !reAny.test(f))) continue;
+        const s = this.lineShabad[l];
+        if (srcOk && !srcOk.includes(this.meta.src[s])) continue;
+        out.push({ line: l, shabad: s, start, r: (start ? 0 : 10) + (rank[this.meta.src[s]] ?? 6) });
+      }
+      out.sort((a, b) => a.r - b.r || a.line - b.line);
+      return { total: out.length, results: out.slice(0, max) };
+    }
   }
 
   const api = { Engine, encode, align };

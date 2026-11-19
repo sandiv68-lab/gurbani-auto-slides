@@ -14,6 +14,7 @@ self.onmessage = async (e) => {
       result = meta;
     } else if (type === 'search') result = eng.search(args[0], args[1]);
     else if (type === 'scoreShabad') result = eng.scoreShabad(args[0], args[1]);
+    else if (type === 'letters') result = eng.letters(args[0], args[1]);
     self.postMessage({ id, result });
   } catch (err) {
     self.postMessage({ id, error: String(err && err.message || err) });

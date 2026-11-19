@@ -81,6 +81,16 @@
   .note { font-size: .8rem; color: var(--muted); line-height: 1.5; }
   .ok { color: #2f8a5b; } .bad { color: #c8463a; }
   #fileInput { display: none; }
+  .sheet.search { display: flex; flex-direction: column; height: 92vh; padding-bottom: 10px; }
+  #qInput { font-family: 'Noto Sans Gurmukhi', 'Open Sans', sans-serif; font-size: 1.1rem; }
+  #qResults { flex: 1; overflow-y: auto; min-height: 80px; border-top: 1px solid var(--line); }
+  #qResults .res { padding: 9px 6px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  #qResults .res .g { font-family: 'Noto Sans Gurmukhi', sans-serif; line-height: 1.5; }
+  #qResults .res .w { font-size: .72rem; color: var(--muted); }
+  #qResults .empty { color: var(--muted); padding: 14px 6px; font-size: .9rem; line-height: 1.5; }
+  #kbd { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; padding-top: 8px; }
+  #kbd button { font-family: 'Noto Sans Gurmukhi', sans-serif; font-size: 1.2rem; padding: 6px 0; min-height: 38px; border: 1px solid var(--line); background: var(--bg); color: var(--barText); border-radius: 8px; }
+  #kbd button:active { background: var(--line); }
   #debugBtn { margin-left: auto; }
   #findBtn { min-width: 52px; display: inline-flex; align-items: center; justify-content: center; padding: 6px 12px; }
   #findBtn svg { width: 24px; height: 24px; display: block; }
@@ -147,6 +157,7 @@
 <div id="bar">
   <div class="barrow">
     <button id="findBtn" class="btn primary" disabled title="Find the shabad" aria-label="Find the shabad"></button>
+    <button id="typeBtn" class="btn icon" title="Search by first letters" aria-label="Search by first letters"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 9.5h.01M9 9.5h.01M12 9.5h.01M15 9.5h.01M18 9.5h.01M6 12.5h.01M9 12.5h.01M12 12.5h.01M15 12.5h.01M18 12.5h.01M8 15.5h8"/></svg></button>
     <div id="meter"><i></i></div>
     <div id="status"><span class="dot off"></span>Ready</div>
     <button id="rahaoBtn" class="btn sm" title="Go to Rahao (R)" disabled>Rahao</button>
@@ -161,6 +172,17 @@
 <div id="linesSheet" class="overlay"><div class="sheet"><div class="row" style="justify-content:space-between"><h2 id="linesTitle">Lines</h2><button class="btn" id="closeLines">Close</button></div>
   <div id="linesList"></div></div></div>
 <button id="nextShabadChip" class="btn">Next shabad ›</button>
+
+<div id="searchSheet" class="overlay"><div class="sheet search">
+  <div class="row" style="justify-content:space-between;margin-top:0"><h2>Search</h2><button class="btn" id="closeSearch">Close</button></div>
+  <div class="row" style="flex-wrap:nowrap">
+    <input id="qInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="First letter of each word: ਮ ਮ ਲ ਗ or m m l g">
+    <button class="btn icon" id="qBack" title="Delete">⌫</button>
+  </div>
+  <div class="row" style="margin:4px 0"><label style="min-width:0"><input type="checkbox" id="qAny"> Match anywhere in the line</label><span id="qCount" class="note" style="margin-left:auto"></span></div>
+  <div id="qResults"></div>
+  <div id="kbd"></div>
+</div></div>
 
 <div id="debug">
   <div><span class="k">Heard:</span> <span class="t" id="dbgText">—</span></div>
@@ -218,10 +240,10 @@
   </div>
 </div>
 
-<script>window.APP_V = "10";</script>
-<script src="skeleton.js?v=10"></script>
-<script src="engine.js?v=10"></script>
-<script src="tracker.js?v=10"></script>
-<script src="app.js?v=10"></script>
+<script>window.APP_V = "11";</script>
+<script src="skeleton.js?v=11"></script>
+<script src="engine.js?v=11"></script>
+<script src="tracker.js?v=11"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

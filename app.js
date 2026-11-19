@@ -39,6 +39,7 @@ const worker = new Worker('worker.js?v=' + V);
 let reqId = 0; const pending = new Map();
 worker.onmessage = e => { const p = pending.get(e.data.id); if (!p) return; pending.delete(e.data.id); e.data.error ? p.reject(new Error(e.data.error)) : p.resolve(e.data.result); };
 const call = (type, ...args) => new Promise((resolve, reject) => { const id = ++reqId; pending.set(id, { resolve, reject }); worker.postMessage({ id, type, args }); });
+const lettersApi = (sets, o) => call('letters', sets, o);
 const engineApi = {
   search: (w, o) => call('search', w, o),
   scoreShabad: (w, s) => call('scoreShabad', w, s),
@@ -541,6 +542,59 @@ $('findBtn').innerHTML = ICON_FIND;
 $('keyInput').value = S.key;
 applyLook();
 
+
+// ---------- manual first-letter search ----------
+const PAINTI = 'ੳਅੲਸਹਕਖਗਘਙਚਛਜਝਞਟਠਡਢਣਤਥਦਧਨਪਫਬਭਮਯਰਲਵੜ';
+const PHON = { a: 'V', e: 'V', i: 'V', o: 'V', u: 'V', k: 'kK', q: 'k', g: 'gG', c: 'cC', j: 'jJ', z: 'j', y: 'j',
+  t: 'qtQT', d: 'wdWD', n: 'n', p: 'pP', f: 'P', b: 'bB', v: 'b', w: 'b', m: 'm', r: 'rR', l: 'l', s: 's', h: 'h', x: 'K' };
+const gChunks = new Map();
+function querySets(q) {
+  const out = [];
+  for (const ch of q) {
+    if (/\s/.test(ch)) continue;
+    if (/[਀-੿]/.test(ch)) { const w = Skeleton.words(ch)[0]; if (w) out.push(w[0]); }
+    else { const p = PHON[ch.toLowerCase()]; if (p) out.push(p); }
+  }
+  return out;
+}
+let qToken = 0;
+async function runSearch() {
+  const q = $('qInput').value, sets = querySets(q), tok = ++qToken, box = $('qResults');
+  if (sets.length < 2) { box.innerHTML = `<div class="empty">Type the first letter of each word of a line — at least 2.<br>Gurmukhi letters (keypad below) or English letters on your phone keyboard: <b>m m l g</b> finds ਮੇਰਾ ਮਨੁ ਲੋਚੈ ਗੁਰ…</div>`; $('qCount').textContent = ''; return; }
+  const r = await lettersApi(sets, { max: 40, sources: selectedSources(), startOnly: !$('qAny').checked });
+  if (tok !== qToken) return;
+  $('qCount').textContent = r.total ? `${r.total.toLocaleString()} found${r.total > 40 ? ' — showing 40' : ''}` : '';
+  if (!r.total) { box.innerHTML = `<div class="empty">Nothing found.${$('qAny').checked ? '' : ' Try ticking “Match anywhere in the line”.'}</div>`; return; }
+  const texts = await Promise.all(r.results.map(async x => {
+    const ci = Math.floor(x.shabad / META.chunk);
+    if (!gChunks.has(ci)) gChunks.set(ci, fetch(`data/g/${ci}.json?v=${V}`).then(res => res.json()));
+    try { return (await gChunks.get(ci))[x.shabad % META.chunk][x.line - META.start[x.shabad]]; } catch { return ''; }
+  }));
+  if (tok !== qToken) return;
+  box.innerHTML = r.results.map((x, i) => `<div class="res" data-i="${i}"><div class="g">${escapeHTML((texts[i] || '').replace(/[;,.]/g, ''))}</div><div class="w">${escapeHTML(where(x.shabad))}</div></div>`).join('');
+  box.querySelectorAll('.res').forEach(el => el.onclick = () => {
+    const x = r.results[+el.dataset.i];
+    $('searchSheet').classList.remove('on');
+    foundCands = []; $('cands').innerHTML = '';
+    if (userBlank) toggleBlank(false);
+    chooseShabad({ shabad: x.shabad, line: x.line });
+    log(`Picked by search: ${where(x.shabad)}`);
+  });
+}
+function openSearch() {
+  $('searchSheet').classList.add('on');
+  if (!$('kbd').childElementCount) {
+    $('kbd').innerHTML = [...PAINTI].map(c => `<button data-c="${c}">${c}</button>`).join('');
+    $('kbd').querySelectorAll('button').forEach(b => b.onclick = () => { $('qInput').value += b.dataset.c; runSearch(); });
+  }
+  runSearch();
+}
+$('typeBtn').onclick = openSearch;
+$('closeSearch').onclick = () => $('searchSheet').classList.remove('on');
+$('searchSheet').addEventListener('click', e => { if (e.target === $('searchSheet')) $('searchSheet').classList.remove('on'); });
+$('qInput').addEventListener('input', runSearch);
+$('qAny').onchange = runSearch;
+$('qBack').onclick = () => { $('qInput').value = [...$('qInput').value.trimEnd()].slice(0, -1).join(''); runSearch(); };
 
 // ---------- boot ----------
 call('init').then(meta => {

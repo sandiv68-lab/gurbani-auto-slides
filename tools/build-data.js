@@ -9,6 +9,7 @@ const CH = 100; // shabads per content chunk
 fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(path.join(OUT, 'c'), { recursive: true });
 fs.mkdirSync(path.join(OUT, 'p'), { recursive: true });
+fs.mkdirSync(path.join(OUT, 'g'), { recursive: true });
 
 const shabads = fs.readFileSync(path.join(__dirname, 'raw', 'lines.jsonl'), 'utf8')
   .split('\n').filter(Boolean).map(JSON.parse);
@@ -16,11 +17,12 @@ const shabads = fs.readFileSync(path.join(__dirname, 'raw', 'lines.jsonl'), 'utf
 const DK = new Set(JSON.parse(fs.readFileSync(path.join(__dirname, 'raw', 'dasam_kirtan.json'))));
 const index = [];
 const meta = { id: [], src: [], page: [], start: [], rahao: [], chunk: CH, total: 0 };
-let cChunk = [], pChunk = [];
+let cChunk = [], pChunk = [], gChunk = [];
 const flush = (n) => {
   fs.writeFileSync(path.join(OUT, 'c', n + '.json'), JSON.stringify(cChunk));
   fs.writeFileSync(path.join(OUT, 'p', n + '.json'), JSON.stringify(pChunk));
-  cChunk = []; pChunk = [];
+  fs.writeFileSync(path.join(OUT, 'g', n + '.json'), JSON.stringify(gChunk));
+  cChunk = []; pChunk = []; gChunk = [];
 };
 
 shabads.forEach((sh, i) => {
@@ -34,7 +36,7 @@ shabads.forEach((sh, i) => {
     c.push([uni, type, translit, en]);
     p.push(pa);
   }
-  cChunk.push(c); pChunk.push(p);
+  cChunk.push(c); pChunk.push(p); gChunk.push(c.map(x => x[0]));
   if (cChunk.length === CH) flush(Math.floor(i / CH));
 });
 if (cChunk.length) flush(Math.floor((shabads.length - 1) / CH));
