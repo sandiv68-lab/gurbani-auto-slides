@@ -81,6 +81,9 @@
   .note { font-size: .8rem; color: var(--muted); line-height: 1.5; }
   .ok { color: #2f8a5b; } .bad { color: #c8463a; }
   #fileInput { display: none; }
+  #findBtn { min-width: 52px; display: inline-flex; align-items: center; justify-content: center; padding: 6px 12px; }
+  #findBtn svg { width: 24px; height: 24px; display: block; }
+  #linesList .div { font-size: .72rem; color: var(--muted); text-align: center; padding: 10px 0 4px; letter-spacing: .08em; }
   .btn.sm { padding: 8px 10px; }
   .btn.on { background: var(--barText); color: var(--panel); }
   .navgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0 4px; }
@@ -135,18 +138,17 @@
 <div id="slide">
   <div id="placeholder">
     <b>Gurbani Auto Slides</b><br>
-    Press <b>Find</b> near the kirtan. It listens until it knows the shabad, then stops.<br>Tap the <b>right side</b> of the screen for the next line, the <b>left side</b> to go back.<br><br>
+    Press <b>🔍</b> near the kirtan. It listens until it knows the shabad, then stops.<br>Tap the <b>right side</b> of the screen for the next line, the <b>left side</b> to go back.<br><br>
     <span id="loadMsg">Loading Gurbani database…</span>
   </div>
 </div>
 
 <div id="bar">
   <div class="barrow">
-    <button id="findBtn" class="btn primary" disabled><span class="ico">🎤</span> Find</button>
+    <button id="findBtn" class="btn primary" disabled title="Find the shabad" aria-label="Find the shabad"></button>
     <div id="meter"><i></i></div>
     <div id="status"><span class="dot off"></span>Ready</div>
     <button id="rahaoBtn" class="btn sm" title="Go to Rahao (R)" disabled>Rahao</button>
-    <button id="homeBtn" class="btn sm" title="Back to the main line (H)" disabled>Home</button>
     <button id="blankBtn" class="btn sm" title="Blank the screen (B)">Blank</button>
     <button id="linesBtn" class="btn icon" title="All lines of this shabad" disabled>☰</button>
     <button id="debugBtn" class="btn icon mono" title="Console">&gt;_</button>
@@ -156,11 +158,6 @@
 </div>
 
 <div id="linesSheet" class="overlay"><div class="sheet"><div class="row" style="justify-content:space-between"><h2 id="linesTitle">Lines</h2><button class="btn" id="closeLines">Close</button></div>
-  <div class="navgrid">
-    <button class="btn" id="prevShabad">‹ Previous shabad</button><button class="btn" id="nextShabad">Next shabad ›</button>
-    <button class="btn" id="prevSection">‹ Previous pauri / verse</button><button class="btn" id="nextSection">Next pauri / verse ›</button>
-  </div>
-  <div class="note" style="margin:6px 0">Tap a line to show it. Press and hold a line to make it <b>Home</b>.</div>
   <div id="linesList"></div></div></div>
 <button id="nextShabadChip" class="btn">Next shabad ›</button>
 
@@ -220,10 +217,10 @@
   </div>
 </div>
 
-<script>window.APP_V = "8";</script>
-<script src="skeleton.js?v=8"></script>
-<script src="engine.js?v=8"></script>
-<script src="tracker.js?v=8"></script>
-<script src="app.js?v=8"></script>
+<script>window.APP_V = "9";</script>
+<script src="skeleton.js?v=9"></script>
+<script src="engine.js?v=9"></script>
+<script src="tracker.js?v=9"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

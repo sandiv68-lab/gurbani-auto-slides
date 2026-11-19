@@ -126,6 +126,8 @@ function applyLook() {
   document.body.classList.toggle('dbg', S.debug);
 }
 
+const ICON_FIND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.5" y1="15.5" x2="21" y2="21"/></svg>';
+const ICON_MIC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="7.5" y="2" width="9" height="12" rx="4.5" fill="currentColor" fill-opacity=".25"/><line x1="7.5" y1="6" x2="16.5" y2="6"/><line x1="7.5" y1="8.5" x2="16.5" y2="8.5"/><line x1="7.5" y1="11" x2="16.5" y2="11"/><path d="M5 11.5a7 7 0 0 0 14 0"/><line x1="12" y1="18.5" x2="12" y2="21.5"/><line x1="8" y1="21.5" x2="16" y2="21.5"/></svg>';
 let lastSnap = null;
 const SHORT = { 1: 'SGGS', 2: 'Dasam', 12: 'Dasam', 3: 'Bhai Gurdas', 4: 'Bhai Gurdas', 5: 'Nand Lal', 6: 'Nand Lal', 7: 'Nand Lal', 8: 'Nand Lal' };
 const where = s => `${SHORT[META.src[s]] || ''} · ${(SRC_NAME[META.src[s]] || ['', 'Page'])[1]} ${META.page[s]}`;
@@ -134,7 +136,8 @@ function setStatus() {
   const fb = $('findBtn');
   fb.className = running ? 'btn listening' : 'btn primary';
   document.body.classList.toggle('listening', running);
-  fb.innerHTML = running ? '■ Listening…' : '<span class="ico">🎤</span> Find';
+  fb.innerHTML = running ? ICON_MIC : ICON_FIND;
+  fb.title = running ? 'Listening… tap to cancel' : 'Find the shabad';
   if (running) {
     if (!ready) { st.innerHTML = `<span class="dot search"></span>Connecting…`; return; }
     if (S.follow && lastSnap && lastSnap.mode === 'locked' && curShabad >= 0) { st.innerHTML = `<span class="dot locked"></span><b>Following</b> ${where(curShabad)}`; return; }
@@ -167,7 +170,7 @@ function chooseShabad(r) {
   if (running && !S.follow) stopListening();
   curShabad = r.shabad;
   if (tracker) { tracker.mode = 'locked'; tracker.shabad = r.shabad; tracker.line = r.line; tracker.ev.clear(); }
-  goLine(r.line); setHome(r.line);
+  goLine(r.line);
   if (foundCands.length) showCands(foundCands, 'Found:', r.shabad);
   setStatus();
 }
@@ -183,9 +186,6 @@ function goLine(l) {
   $('linesBtn').disabled = false;
   if ($('linesSheet').classList.contains('on')) drawLines();
 }
-let homeLine = -1;
-function setHome(l) { homeLine = l; $('homeBtn').disabled = l < 0; if ($('linesSheet').classList.contains('on')) drawLines(); }
-function goHome() { if (homeLine >= 0) goLine(homeLine); }
 function toggleBlank(v) {
   userBlank = v === undefined ? !userBlank : v;
   $('blankBtn').classList.toggle('on', userBlank);
@@ -198,17 +198,7 @@ async function goShabad(d) {
   const s = curShabad + d; if (s < 0 || s >= META.start.length) return;
   const first = await getLine(META.start[s]);
   let off = 0; while (off < first.lines.length - 1 && HEADING.test(first.lines[off][0].trim())) off++;
-  curShabad = s; goLine(META.start[s] + off); setHome(META.start[s] + off); setStatus();
-}
-async function goSection(d) {
-  if (shown < 0) return;
-  const s = shabadOf(shown), first = await getLine(META.start[s]);
-  const ends = []; // global indices of lines that close a pauri / verse (end with a number)
-  first.lines.forEach((L, i) => { if (/[॥।]\s*[੦-੯0-9]+\s*[॥।]?\s*$/.test(L[0])) ends.push(META.start[s] + i); });
-  const starts = [META.start[s], ...ends.map(e => e + 1).filter(x => x < shabadEnd(s))];
-  const uniq = [...new Set(starts)].sort((a, b) => a - b);
-  if (d > 0) { const n = uniq.find(x => x > shown); if (n !== undefined) goLine(n); else goShabad(1); }
-  else { const curStart = uniq.filter(x => x <= shown).pop(); const target = shown > curStart ? curStart : uniq.filter(x => x < curStart).pop(); if (target !== undefined) goLine(target); else goShabad(-1); }
+  curShabad = s; goLine(META.start[s] + off); setStatus();
 }
 function step(d) {
   if (userBlank) { toggleBlank(false); return; }
@@ -234,18 +224,26 @@ async function drawLines() {
   const d = await getLine(META.start[curShabad]);
   const k = firstRow() === 'tl' ? 'tl' : 'gur';
   $('linesTitle').textContent = where(curShabad);
-  $('linesList').innerHTML = d.lines.map((L, i) => {
-    const g = META.start[curShabad] + i;
-    return `<div class="ln${g === shown ? ' cur' : ''}${k === 'tl' ? '' : ''}" data-l="${g}" style="${k === 'tl' ? "font-family:'Open Sans',sans-serif" : ''}">${escapeHTML((rowText(k, L, null) || L[0]).replace(/[;,.]/g, ''))}${rahaoSet.has(g) ? '<span class="rh">RAHAO</span>' : ''}${g === homeLine ? '<span class="hm">HOME</span>' : ''}</div>`;
-  }).join('');
-  $('linesList').querySelectorAll('.ln').forEach(el => {
-    let t = null, held = false;
-    const l = +el.dataset.l;
-    el.addEventListener('pointerdown', () => { held = false; t = setTimeout(() => { held = true; setHome(l); if (navigator.vibrate) navigator.vibrate(30); }, 550); });
-    ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => el.addEventListener(ev, () => clearTimeout(t)));
-    el.addEventListener('contextmenu', e => e.preventDefault());
-    el.onclick = () => { if (held) return; goLine(l); $('linesSheet').classList.remove('on'); };
+  const NUM = /[॥।]\s*([੦-੯0-9]+)\s*[॥।]?\s*$/;
+  const G2A = t => t.replace(/[੦-੯]/g, c => c.charCodeAt(0) - 0x0A66);
+  const base = META.start[curShabad];
+  const ends = d.lines.map(L => NUM.test(L[0]));
+  const isR = i => rahaoSet.has(base + i);
+  const blocks = []; // [startIndex, endIndex]
+  d.lines.forEach((L, i) => { if (i === 0 || ends[i - 1] || isR(i) !== isR(i - 1)) blocks.push([i, i]); else blocks[blocks.length - 1][1] = i; });
+  const label = ([a, b]) => { if (isR(a)) return 'Rahao'; const m = d.lines[b][0].match(NUM); return m ? G2A(m[1]) : ''; };
+  const showDiv = ends.filter(Boolean).length >= 2;
+  let html = '';
+  blocks.forEach(blk => {
+    const lab = label(blk);
+    if (showDiv && lab) html += `<div class="div">— ${lab} —</div>`;
+    for (let i = blk[0]; i <= blk[1]; i++) {
+      const g = base + i, L = d.lines[i];
+      html += `<div class="ln${g === shown ? ' cur' : ''}" data-l="${g}" style="${k === 'tl' ? "font-family:'Open Sans',sans-serif" : ''}">${escapeHTML((rowText(k, L, null) || L[0]).replace(/[;,.]/g, ''))}${isR(i) ? '<span class="rh">RAHAO</span>' : ''}</div>`;
+    }
   });
+  $('linesList').innerHTML = html;
+  $('linesList').querySelectorAll('.ln').forEach(el => el.onclick = () => { goLine(+el.dataset.l); $('linesSheet').classList.remove('on'); });
   const cur = $('linesList').querySelector('.cur'); if (cur) cur.scrollIntoView({ block: 'center' });
 }
 let rahaoSet = new Set();
@@ -285,7 +283,6 @@ async function tick() {
         const others = distinctCands(snap.candidates).filter(r => r.shabad !== snap.shabad);
         foundCands = [{ shabad: snap.shabad, line: snap.line, score: 1 }, ...others].slice(0, 3);
         showCands(foundCands, 'Found:', snap.shabad);
-        setHome(snap.line);
       }
       goLine(snap.line);
       if (!S.follow) stopListening();
@@ -504,16 +501,10 @@ document.addEventListener('keydown', e => {
   if (['ArrowRight', 'PageDown', ' '].includes(e.key)) { step(1); e.preventDefault(); }
   else if (['ArrowLeft', 'PageUp'].includes(e.key)) { step(-1); e.preventDefault(); }
   else if (e.key === 'r' || e.key === 'R') goRahao();
-  else if (e.key === 'h' || e.key === 'H') goHome();
   else if (e.key === 'b' || e.key === 'B' || e.key === '.') toggleBlank();
 });
 $('rahaoBtn').onclick = () => { if (userBlank) toggleBlank(false); goRahao(); };
-$('homeBtn').onclick = () => { if (userBlank) toggleBlank(false); goHome(); };
 $('blankBtn').onclick = () => toggleBlank();
-$('prevShabad').onclick = () => goShabad(-1);
-$('nextShabad').onclick = () => goShabad(1);
-$('prevSection').onclick = () => goSection(-1);
-$('nextSection').onclick = () => goSection(1);
 $('nextShabadChip').onclick = e => { e.stopPropagation(); goShabad(1); };
 $('linesBtn').onclick = () => { $('linesSheet').classList.add('on'); drawLines(); };
 $('closeLines').onclick = () => $('linesSheet').classList.remove('on');
@@ -546,6 +537,7 @@ function drawRowList() {
   $('rowList').querySelectorAll('[data-dn]').forEach(b => b.onclick = () => { const i = +b.dataset.dn; [S.rows[i + 1], S.rows[i]] = [S.rows[i], S.rows[i + 1]]; save(); drawRowList(); render(shown, true); });
 }
 drawRowList();
+$('findBtn').innerHTML = ICON_FIND;
 $('keyInput').value = S.key;
 applyLook();
 
@@ -556,7 +548,7 @@ call('init').then(meta => {
   tracker = new GTracker.Tracker(engineApi, meta, { lockEvidence: 0.9, immScore: 0.85, immRaw: 22 });
   tracker.setSources(selectedSources());
   $('loadMsg').textContent = S.key ? 'Ready.' : 'Ready. First, add your Gemini key in ⚙ Settings.';
-  $('findBtn').disabled = false; rahaoSet = new Set(meta.rahao);
+  $('findBtn').disabled = false; rahaoSet = new Set(meta.rahao); setStatus();
   log(`Database loaded: ${meta.total.toLocaleString()} lines`);
 }).catch(e => { $('loadMsg').textContent = 'Could not load the database: ' + e.message; });
 })();
