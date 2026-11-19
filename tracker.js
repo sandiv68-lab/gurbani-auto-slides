@@ -159,7 +159,7 @@
   }
 
   // Everyday Punjabi words that (almost) never occur in Gurbani: a few of them close together means talking/katha.
-  const KATHA = new Set('ਗੱਲ ਜਦੋਂ ਤੁਸੀਂ ਅਸੀਂ ਸਾਡੇ ਸਾਡਾ ਸਾਡੀ ਤੁਹਾਡੇ ਤੁਹਾਡਾ ਕਿਉਂਕਿ ਜਿਹੜਾ ਜਿਹੜੇ ਜਿਹੜੀ ਜਿਹਨੇ ਜਿਹਨਾਂ ਹੁੰਦਾ ਹੁੰਦੇ ਹੁੰਦੀ ਦੱਸਿਆ ਦੱਸਦੇ ਕਿੰਨੀ ਕਿੰਨਾ ਜਿਵੇਂ ਕਿਵੇਂ ਇੱਥੇ ਉੱਥੇ ਅੱਜ ਹੁਣ ਪਾਤਸ਼ਾਹ ਜਿਹਦੇ ਉਨ੍ਹਾਂ ਇਨ੍ਹਾਂ ਗਿਆ ਕਰਕੇ ਵੀ ਨੂੰ ਨਾਲ ਲੋਕ ਮਤਲਬ ਯਾਨੀ ਸੋ ਜੀ ਸਾਧ ਸੰਗਤ ਕਹਿੰਦੇ ਸਮਝ ਬਾਅਦ ਪਹਿਲਾਂ ਵਾਸਤੇ'.split(' '));
+  const KATHA = new Set('ਗੱਲ ਜਦੋਂ ਤੁਸੀਂ ਅਸੀਂ ਸਾਡੇ ਸਾਡਾ ਸਾਡੀ ਤੁਹਾਡੇ ਤੁਹਾਡਾ ਕਿਉਂਕਿ ਜਿਹੜਾ ਜਿਹੜੇ ਜਿਹੜੀ ਜਿਹਨੇ ਜਿਹਨਾਂ ਹੁੰਦਾ ਹੁੰਦੇ ਹੁੰਦੀ ਦੱਸਿਆ ਦੱਸਦੇ ਕਿੰਨੀ ਕਿੰਨਾ ਜਿਵੇਂ ਕਿਵੇਂ ਇੱਥੇ ਉੱਥੇ ਅੱਜ ਹੁਣ ਪਾਤਸ਼ਾਹ ਜਿਹਦੇ ਉਨ੍ਹਾਂ ਇਨ੍ਹਾਂ ਗਿਆ ਕਰਕੇ ਵੀ ਮਤਲਬ ਯਾਨੀ ਕਹਿੰਦੇ ਬਾਅਦ ਵਾਸਤੇ'.split(' '));
   function isKatha(text) {
     const w = (text || '').replace(/[^\u0A00-\u0A7F\s]/g, ' ').split(/\s+/).filter(Boolean).slice(-10);
     let n = 0; for (const x of w) if (KATHA.has(x)) n++;
