@@ -25,7 +25,7 @@
   button { font: inherit; }
 
   /* Slide */
-  #slide { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+  #slide { position: fixed; inset: 0; padding-top: calc(var(--barH, 70px) + 3vh) !important; display: flex; flex-direction: column; align-items: center;
     justify-content: center; text-align: center; padding: 6vh 6vw; gap: calc(3.2vh * var(--scale)); }
   .gur { font-family: 'Noto Sans Gurmukhi', sans-serif; font-weight: 600; color: var(--gurmukhi);
     font-size: calc(min(7.2vw, 8.5vh) * var(--scale)); line-height: 1.45; max-width: 22ch; }
@@ -81,11 +81,32 @@
   .note { font-size: .8rem; color: var(--muted); line-height: 1.5; }
   .ok { color: #2f8a5b; } .bad { color: #c8463a; }
   #fileInput { display: none; }
+  .barrow { display: flex; align-items: center; gap: 8px; width: 100%; }
+  #bar { flex-direction: column; align-items: stretch; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-weight: 700; }
+  .btn:disabled { opacity: .45; }
+  .btn.listening { background: #b4473c; border-color: #b4473c; color: #fff; font-weight: 600; animation: pulse 1.4s infinite; }
+  @keyframes pulse { 50% { opacity: .75; } }
+  #cands { display: flex; gap: 6px; overflow-x: auto; padding-top: 6px; }
+  #cands:empty { display: none; }
+  .chip { flex: none; max-width: 78vw; border: 1px solid var(--line); background: var(--panel); color: var(--barText); border-radius: 999px;
+    padding: 6px 12px; font-size: .82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  .chip .g { font-family: 'Noto Sans Gurmukhi', sans-serif; }
+  .chip.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .chip.lbl { border: none; background: none; color: var(--muted); padding-left: 0; cursor: default; }
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: none; z-index: 10; align-items: flex-end; justify-content: center; }
+  .overlay.on { display: flex; }
+  #linesList .ln { font-family: 'Noto Sans Gurmukhi', sans-serif; padding: 10px 8px; border-bottom: 1px solid var(--line); cursor: pointer; line-height: 1.5; }
+  #linesList .ln.cur { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+  #linesList .ln .rh { font-family: 'Open Sans', sans-serif; font-size: .7rem; color: var(--accent); margin-left: 6px; }
+  #findBtn { white-space: nowrap; }
+  #meter { display: none; }
+  body.listening #meter { display: block; }
   @media (max-width: 560px) {
-    #bar { flex-wrap: wrap; gap: 6px; }
+    .barrow { flex-wrap: wrap; gap: 6px; }
+    #findBtn { flex: none; }
     #status { order: 10; flex-basis: 100%; font-size: .85rem; }
     #status br { display: none; }
-    #status b::after { content: ' · '; font-weight: 400; }
     #meter { flex: 1; }
     .btn.icon { min-width: 38px; padding: 6px 8px; }
   }
@@ -95,20 +116,25 @@
 <div id="slide">
   <div id="placeholder">
     <b>Gurbani Auto Slides</b><br>
-    Press <b>Start</b> and hold the phone near the kirtan. The right line appears on its own.<br><br>
+    Press <b>Find</b> near the kirtan. It listens until it knows the shabad, then stops.<br>Tap the <b>right side</b> of the screen for the next line, the <b>left side</b> to go back.<br><br>
     <span id="loadMsg">Loading Gurbani database…</span>
   </div>
 </div>
 
 <div id="bar">
-  <button id="startBtn" class="btn primary" disabled>Start</button>
-  <div id="meter"><i></i></div>
-  <div id="status"><span class="dot off"></span>Not listening</div>
-  <button id="prevBtn" class="btn icon" title="Previous line">‹</button>
-  <button id="nextBtn" class="btn icon" title="Next line">›</button>
-  <button id="debugBtn" class="btn icon" title="Show what it hears">🔍</button>
-  <button id="setBtn" class="btn icon" title="Settings">⚙</button>
+  <div class="barrow">
+    <button id="findBtn" class="btn primary" disabled><span class="ico">🎤</span> Find</button>
+    <div id="meter"><i></i></div>
+    <div id="status"><span class="dot off"></span>Ready</div>
+    <button id="rahaoBtn" class="btn" title="Go to Rahao" disabled>Rahao</button>
+    <button id="linesBtn" class="btn icon" title="All lines of this shabad" disabled>☰</button>
+    <button id="debugBtn" class="btn icon mono" title="Console">&gt;_</button>
+    <button id="setBtn" class="btn icon" title="Settings">⚙</button>
+  </div>
+  <div id="cands"></div>
 </div>
+
+<div id="linesSheet" class="overlay"><div class="sheet"><div class="row" style="justify-content:space-between"><h2>Lines</h2><button class="btn" id="closeLines">Close</button></div><div id="linesList"></div></div></div>
 
 <div id="debug">
   <div><span class="k">Heard:</span> <span class="t" id="dbgText">—</span></div>
@@ -136,9 +162,10 @@
     <h3>Test with a recording</h3>
     <div class="row">
       <button class="btn" id="fileBtn">Choose kirtan audio file…</button>
+      <button class="btn" id="fileStop" disabled>Stop recording</button>
       <input id="fileInput" type="file" accept="audio/*,video/*">
     </div>
-    <div class="note">Plays the file and listens to it the same way as the mic, so you can test at home.</div>
+    <div class="note">Plays the file and presses Find for you, so you can test at home. Press Find again any time while it plays.</div>
 
     <h3>Show on screen</h3>
     <div class="row"><label for="optTr">English translation</label><input type="checkbox" id="optTr"></div>
@@ -146,7 +173,8 @@
     <div class="row"><label for="optPa">Punjabi translation</label><input type="checkbox" id="optPa"></div>
     <div class="row"><label for="optNext">Next line (small)</label><input type="checkbox" id="optNext"></div>
     <div class="row"><label for="optDark">Dark background</label><input type="checkbox" id="optDark"></div>
-    <div class="row"><label for="optBlank">Blank screen when lost</label><input type="checkbox" id="optBlank"></div>
+    <div class="row"><label for="optFollow">Keep listening and follow lines automatically (experimental)</label><input type="checkbox" id="optFollow"></div>
+    <div class="row"><label for="optBlank">Blank screen when lost (auto-follow only)</label><input type="checkbox" id="optBlank"></div>
     <div class="row"><label for="optSize">Text size</label><input type="range" id="optSize" min="0.6" max="1.5" step="0.05"></div>
 
     <h3>Search in</h3>
@@ -167,10 +195,10 @@
   </div>
 </div>
 
-<script>window.APP_V = "6";</script>
-<script src="skeleton.js?v=6"></script>
-<script src="engine.js?v=6"></script>
-<script src="tracker.js?v=6"></script>
-<script src="app.js?v=6"></script>
+<script>window.APP_V = "7";</script>
+<script src="skeleton.js?v=7"></script>
+<script src="engine.js?v=7"></script>
+<script src="tracker.js?v=7"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

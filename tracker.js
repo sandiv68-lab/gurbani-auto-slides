@@ -9,6 +9,7 @@
     lockMargin: 1.35,
     goodLine: 0.6,
     lostAfterMs: 45000,
+    immScore: 0.9, immRaw: 24,
     suffixW: 1.0,
     switchMisses: 1,
     switchEvidence: 1.4,
@@ -78,7 +79,7 @@
         if (a[0] >= 0 && a[1] >= need && a[1] >= this.o.lockMargin * b[1] && best.get(a[0])) return { lock: a[0], hit: best.get(a[0]) };
       }
       const r0 = res[0];
-      if (r0 && r0.shabad !== exclude && r0.score >= 0.9 && r0.raw >= (exclude >= 0 ? 30 : 24)) {
+      if (r0 && r0.shabad !== exclude && r0.score >= this.o.immScore && r0.raw >= (exclude >= 0 ? 30 : this.o.immRaw)) {
         const rival = res.find(r => r.shabad !== r0.shabad && !similar(r.sig, r0.sig) && r.score >= r0.score - 0.12);
         if (!rival) return { lock: r0.shabad, hit: r0 };
       }

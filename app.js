@@ -15,7 +15,7 @@ const store = {
 const S = {
   key: store.get('key', ''), tr: store.get('tr', true), tl: store.get('tl', true), pa: store.get('pa', false),
   next: store.get('next', false), dark: store.get('dark', false), blank: store.get('blank', false),
-  size: store.get('size', 1), lang: store.get('lang', 'pa-IN'), vad: store.get('vad', 'manual'), debug: store.get('debug', true),
+  size: store.get('size', 1), follow: store.get('follow', false), lang: store.get('lang', 'pa-IN'), vad: store.get('vad', 'manual'), debug: store.get('debug', true),
   srcs: store.get('srcs', { src1: true, src3: true, src2: true, src5: true }),
 };
 function save() { for (const k in S) store.set(k, S[k]); }
@@ -105,19 +105,90 @@ function applyLook() {
 }
 
 let lastSnap = null;
+const SHORT = { 1: 'SGGS', 2: 'Dasam', 12: 'Dasam', 3: 'Bhai Gurdas', 4: 'Bhai Gurdas', 5: 'Nand Lal', 6: 'Nand Lal', 7: 'Nand Lal', 8: 'Nand Lal' };
+const where = s => `${SHORT[META.src[s]] || ''} · ${(SRC_NAME[META.src[s]] || ['', 'Page'])[1]} ${META.page[s]}`;
 function setStatus() {
   const st = $('status');
-  if (!running) { st.innerHTML = `<span class="dot ${connError ? 'err' : 'off'}"></span>${connError ? escapeHTML(connError) : 'Not listening'}`; return; }
-  if (!ready) { st.innerHTML = `<span class="dot search"></span>Connecting…`; return; }
-  const snap = lastSnap;
-  if (snap && snap.mode === 'locked' && snap.shabad >= 0) {
-    const [name, unit] = SRC_NAME[META.src[snap.shabad]] || ['', 'Page'];
-    const short = { 1: 'SGGS', 2: 'Dasam', 12: 'Dasam', 3: 'Bhai Gurdas', 4: 'Bhai Gurdas', 5: 'Nand Lal', 6: 'Nand Lal', 7: 'Nand Lal', 8: 'Nand Lal' }[META.src[snap.shabad]];
-    st.innerHTML = `<span class="dot locked"></span><b>Following</b><br>${short} · ${unit} ${META.page[snap.shabad]}`;
-  } else {
-    st.innerHTML = `<span class="dot search"></span><b>Listening</b><br>finding the shabad…`;
+  const fb = $('findBtn');
+  fb.className = running ? 'btn listening' : 'btn primary';
+  document.body.classList.toggle('listening', running);
+  fb.innerHTML = running ? '■ Listening…' : '<span class="ico">🎤</span> Find';
+  if (running) {
+    if (!ready) { st.innerHTML = `<span class="dot search"></span>Connecting…`; return; }
+    if (S.follow && lastSnap && lastSnap.mode === 'locked' && curShabad >= 0) { st.innerHTML = `<span class="dot locked"></span><b>Following</b> ${where(curShabad)}`; return; }
+    st.innerHTML = `<span class="dot search"></span><b>Listening</b> finding the shabad…`; return;
   }
+  if (connError) { st.innerHTML = `<span class="dot err"></span>${escapeHTML(connError)}`; return; }
+  if (curShabad >= 0) { st.innerHTML = `<span class="dot locked"></span><b>${where(curShabad)}</b>`; return; }
+  st.innerHTML = `<span class="dot off"></span>Ready`;
 }
+
+// ---------- candidates strip ----------
+let curShabad = -1, foundCands = [];
+function distinctCands(cands, n = 3) {
+  const out = [], seen = new Set();
+  for (const r of cands || []) { if (seen.has(r.shabad) || r.score < 0.45) continue; seen.add(r.shabad); out.push(r); if (out.length === n) break; }
+  return out;
+}
+async function showCands(list, label, chosen) {
+  const box = $('cands');
+  if (!list.length) { box.innerHTML = ''; return; }
+  const items = await Promise.all(list.map(async r => { const d = await getLine(r.line).catch(() => null); return { r, text: d ? d.line[0].replace(/[;,.]/g, '').split(/\s+/).slice(0, 5).join(' ') : '' }; }));
+  box.innerHTML = `<span class="chip lbl">${label}</span>` + items.map(({ r, text }, i) =>
+    `<button class="chip${r.shabad === chosen ? ' on' : ''}" data-i="${i}">${r.shabad === chosen ? '✓ ' : ''}<span class="g">${escapeHTML(text)}</span> · ${escapeHTML(where(r.shabad))}</button>`).join('') +
+    (label === 'Found:' ? '<button class="chip" id="candClose">✕</button>' : '');
+  box.querySelectorAll('[data-i]').forEach(b => b.onclick = () => chooseShabad(items[+b.dataset.i].r));
+  const c = $('candClose'); if (c) c.onclick = () => { box.innerHTML = ''; };
+}
+function chooseShabad(r) {
+  if (running && !S.follow) stopListening();
+  curShabad = r.shabad;
+  if (tracker) { tracker.mode = 'locked'; tracker.shabad = r.shabad; tracker.line = r.line; tracker.ev.clear(); }
+  goLine(r.line);
+  if (foundCands.length) showCands(foundCands, 'Found:', r.shabad);
+  setStatus();
+}
+
+// ---------- navigation ----------
+function shabadEnd(s) { return s + 1 < META.start.length ? META.start[s + 1] : META.total; }
+function goLine(l) {
+  if (!META || l < 0) return;
+  curShabad = shabadOf(l);
+  if (tracker) tracker.line = l;
+  render(l);
+  $('rahaoBtn').disabled = !rahaoGroups(curShabad).length;
+  $('linesBtn').disabled = false;
+  if ($('linesSheet').classList.contains('on')) drawLines();
+}
+function step(d) {
+  if (shown < 0 || !META) return;
+  const s = shabadOf(shown), n = shown + d;
+  if (n >= META.start[s] && n < shabadEnd(s)) goLine(n);
+}
+function rahaoGroups(s) { // start line of each block of consecutive rahao lines
+  const out = [];
+  for (let l = META.start[s]; l < shabadEnd(s); l++) if (rahaoSet.has(l) && !rahaoSet.has(l - 1)) out.push(l);
+  return out;
+}
+function goRahao() {
+  if (curShabad < 0) return;
+  const g = rahaoGroups(curShabad); if (!g.length) return;
+  const inGroup = rahaoSet.has(shown);
+  let target = g[0];
+  if (inGroup) { const cur = g.filter(x => x <= shown).pop(); const i = g.indexOf(cur); target = g[(i + 1) % g.length]; }
+  goLine(target);
+}
+async function drawLines() {
+  if (curShabad < 0) return;
+  const d = await getLine(META.start[curShabad]);
+  $('linesList').innerHTML = d.lines.map((L, i) => {
+    const g = META.start[curShabad] + i;
+    return `<div class="ln${g === shown ? ' cur' : ''}" data-l="${g}">${escapeHTML(L[0].replace(/[;,.]/g, ''))}${rahaoSet.has(g) ? '<span class="rh">RAHAO</span>' : ''}</div>`;
+  }).join('');
+  $('linesList').querySelectorAll('.ln').forEach(el => el.onclick = () => { goLine(+el.dataset.l); $('linesSheet').classList.remove('on'); });
+  const cur = $('linesList').querySelector('.cur'); if (cur) cur.scrollIntoView({ block: 'center' });
+}
+let rahaoSet = new Set();
 
 // ---------- transcript ----------
 let finalText = '', interimText = '', lastProcessed = '', nInterim = 0, nFinal = 0, nWords = 0;
@@ -129,11 +200,11 @@ function onTranscript(kind, text) {
   $('dbgCount').textContent = `Received ${nFinal} finished + ${nInterim} live updates · ${nWords} words`;
   const full = (finalText + ' ' + interimText).trim();
   $('dbgText').innerHTML = escapeHTML(finalText.slice(-320)) + ' <i>' + escapeHTML(interimText) + '</i>';
-  if (!/[਀-੿]/.test(text)) log('Not Gurmukhi: ' + text.slice(0, 60));
+  if (!/[\u0A00-\u0A7F]/.test(text)) log('Not Gurmukhi: ' + text.slice(0, 60));
 }
 let busy = false, lastFinalCount = 0, lastNote = '';
 async function tick() {
-  if (!tracker || busy) return;
+  if (!tracker || busy || !running) return;
   const full = (finalText + ' ' + interimText).trim();
   const isFinal = nFinal !== lastFinalCount;
   if (full === lastProcessed && !isFinal) return;
@@ -147,14 +218,22 @@ async function tick() {
     if (snap.mode === 'search' && snap.note && snap.note.startsWith('lost') && S.blank && !blanked) {
       $('slide').innerHTML = ''; shown = -1; blanked = true;
     }
+    if (running && snap.mode !== 'locked') showCands(distinctCands(snap.candidates), 'Possible:', -1);
     if (snap.mode === 'locked' && snap.line >= 0) {
-      if (snap.shabad !== lockedShabad) { lockedShabad = snap.shabad; vocabShabad = -1; log(`Locked: ${META.id[snap.shabad]} (${(SRC_NAME[META.src[snap.shabad]] || [''])[0]} ${META.page[snap.shabad]})`); }
-      render(snap.line);
+      if (snap.shabad !== lockedShabad) {
+        lockedShabad = snap.shabad; vocabShabad = -1;
+        log(`Found: ${META.id[snap.shabad]} (${where(snap.shabad)})`);
+        const others = distinctCands(snap.candidates).filter(r => r.shabad !== snap.shabad);
+        foundCands = [{ shabad: snap.shabad, line: snap.line, score: 1 }, ...others].slice(0, 3);
+        showCands(foundCands, 'Found:', snap.shabad);
+      }
+      goLine(snap.line);
+      if (!S.follow) stopListening();
     }
     const c = (snap.candidates || []).slice(0, 3).map(r => `${(SRC_NAME[META.src[r.shabad]] || ['?'])[1]} ${META.page[r.shabad]}:${r.score.toFixed(2)}`).join('  ');
     $('dbgState').textContent = `Mode: ${snap.mode === 'locked' ? 'following' : 'searching'}${snap.shabad >= 0 ? ' · shabad ' + META.id[snap.shabad] : ''}${c ? ' · top: ' + c : ''}`;
     const top = (snap.candidates || [])[0];
-    if (snap.mode !== 'locked' && top) getLine(top.line).then(d => { if (d) $('dbgGuess').innerHTML = `Best guess (${top.score.toFixed(2)}, needs about 0.6 to show): <span class="t">${escapeHTML(d.line[0])}</span>`; });
+    if (snap.mode !== 'locked' && top) getLine(top.line).then(d => { if (d) $('dbgGuess').innerHTML = `Best guess (${top.score.toFixed(2)}): <span class="t">${escapeHTML(d.line[0])}</span>`; });
     else $('dbgGuess').textContent = '';
     setStatus();
   } catch (e) { log('Match error: ' + e.message); }
@@ -291,45 +370,50 @@ async function setupAudio() {
   };
 }
 
-async function start(fileBuffer) {
-  if (!S.key) { openSettings(); $('keyResult').textContent = 'Add your key first.'; return; }
+let source = null; // 'mic' | 'file'
+async function startAudio(fileBuffer) {
   await setupAudio();
   await ctx.resume();
   if (fileBuffer) {
     const audio = await ctx.decodeAudioData(fileBuffer);
     fileSrc = ctx.createBufferSource(); fileSrc.buffer = audio;
     fileSrc.connect(node); fileSrc.connect(ctx.destination);
-    fileSrc.onended = () => { if (running) { log('Recording finished'); stop(); } };
-    fileSrc.start();
+    fileSrc.onended = () => { log('Recording finished'); if (source === 'file') { stopListening(); stopAudio(); } };
+    fileSrc.start(); source = 'file'; $('fileStop').disabled = false;
   } else {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1 } });
-    ctx.createMediaStreamSource(micStream).connect(node);
+    ctx.createMediaStreamSource(micStream).connect(node); source = 'mic';
   }
-  running = true; ready = false; connError = '';
-  tracker.reset(); tracker.setSources(selectedSources()); finalText = interimText = lastProcessed = ''; lockedShabad = -1; nInterim = nFinal = nWords = 0; lastFinalCount = 0; $('dbgText').textContent = '—'; $('dbgGuess').textContent = '';
-  $('startBtn').textContent = 'Stop'; $('startBtn').className = 'btn stop';
-  try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
-  setStatus();
-  log(fileBuffer ? 'Testing with recording' : 'Listening to microphone');
-  rotate();
-  scheduleHide();
 }
-function stop() {
+function stopAudio() {
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  if (fileSrc) { try { fileSrc.onended = null; fileSrc.stop(); } catch {} fileSrc = null; }
+  if (node) { try { node.disconnect(); } catch {} }
+  if (ctx) { ctx.close(); ctx = null; node = null; }
+  source = null; $('fileStop').disabled = true;
+  $('meter').firstChild.style.width = '0';
+}
+async function startListening() {
+  if (!S.key) { openSettings(); $('keyResult').textContent = 'Add your key first.'; return; }
+  if (!ctx) await startAudio();
+  running = true; ready = false; connError = '';
+  tracker.reset(); tracker.setSources(selectedSources());
+  finalText = interimText = lastProcessed = ''; lockedShabad = -1; nInterim = nFinal = nWords = 0; lastFinalCount = 0;
+  $('dbgText').textContent = '—'; $('dbgGuess').textContent = ''; $('cands').innerHTML = ''; foundCands = [];
+  try { wakeLock = wakeLock || await navigator.wakeLock.request('screen'); } catch {}
+  setStatus();
+  log(source === 'file' ? 'Finding (recording)' : 'Finding (microphone)');
+  rotate();
+}
+function stopListening() {
   running = false; ready = false;
   clearTimeout(rotateTimer);
   if (active) { try { active.send(JSON.stringify(active._manual ? { realtimeInput: { activityEnd: {} } } : { realtimeInput: { audioStreamEnd: true } })); } catch {} const a = active; setTimeout(() => { try { a.close(); } catch {} }, 1500); active = null; }
-  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
-  if (fileSrc) { try { fileSrc.stop(); } catch {} fileSrc = null; }
-  if (node) { try { node.disconnect(); } catch {} }
-  if (ctx) { ctx.close(); ctx = null; node = null; }
-  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
-  $('startBtn').textContent = 'Start'; $('startBtn').className = 'btn primary';
-  $('meter').firstChild.style.width = '0';
-  showBar(); setStatus();
+  if (source === 'mic') stopAudio();
+  setStatus();
 }
 document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState === 'visible' && running && !wakeLock) { try { wakeLock = await navigator.wakeLock.request('screen'); } catch {} }
-  if (document.visibilityState === 'visible') wakeLock = wakeLock && !wakeLock.released ? wakeLock : null;
+  if (document.visibilityState === 'visible') { try { wakeLock = await navigator.wakeLock.request('screen'); } catch {} }
 });
 
 // ---------- test key ----------
@@ -348,13 +432,25 @@ function selectedSources() {
   document.querySelectorAll('[data-src]').forEach(cb => { if (cb.checked) cb.dataset.src.split(',').forEach(x => out.push(+x)); });
   return out;
 }
-function openSettings() { $('settings').classList.add('on'); showBar(); }
-let hideTimer = null;
-function showBar() { $('bar').classList.remove('hidden'); clearTimeout(hideTimer); }
-function scheduleHide() { clearTimeout(hideTimer); if (running) hideTimer = setTimeout(() => $('bar').classList.add('hidden'), 6000); }
-$('slide').addEventListener('click', () => { if ($('bar').classList.contains('hidden')) { showBar(); scheduleHide(); } else if (running) $('bar').classList.add('hidden'); });
-$('bar').addEventListener('click', () => { showBar(); scheduleHide(); });
-$('startBtn').onclick = () => running ? stop() : start().catch(e => { log('Start failed: ' + e.message); connError = e.message; stop(); });
+function openSettings() { $('settings').classList.add('on'); }
+$('findBtn').onclick = () => {
+  if (running) { stopListening(); log('Find cancelled'); return; }
+  startListening().catch(e => { log('Find failed: ' + e.message); connError = e.message; stopListening(); });
+};
+$('slide').addEventListener('click', e => {
+  const x = e.clientX / window.innerWidth;
+  if (x < 1 / 3) step(-1); else if (x > 2 / 3) step(1);
+});
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (['ArrowRight', 'PageDown', ' '].includes(e.key)) { step(1); e.preventDefault(); }
+  else if (['ArrowLeft', 'PageUp'].includes(e.key)) { step(-1); e.preventDefault(); }
+  else if (e.key === 'r' || e.key === 'R') goRahao();
+});
+$('rahaoBtn').onclick = goRahao;
+$('linesBtn').onclick = () => { $('linesSheet').classList.add('on'); drawLines(); };
+$('closeLines').onclick = () => $('linesSheet').classList.remove('on');
+$('linesSheet').addEventListener('click', e => { if (e.target === $('linesSheet')) $('linesSheet').classList.remove('on'); });
 $('setBtn').onclick = openSettings;
 $('closeSet').onclick = () => { $('settings').classList.remove('on'); if (tracker) tracker.setSources(selectedSources()); render(shown, true); };
 $('settings').addEventListener('click', e => { if (e.target === $('settings')) $('closeSet').onclick(); });
@@ -363,18 +459,18 @@ $('testKey').onclick = testKey;
 $('showKey').onclick = () => { const k = $('keyInput'); k.type = k.type === 'password' ? 'text' : 'password'; $('showKey').textContent = k.type === 'password' ? 'Show' : 'Hide'; };
 $('keyInput').addEventListener('change', () => { S.key = $('keyInput').value.trim(); save(); if (S.key && META) $('loadMsg').textContent = 'Ready.'; });
 $('fileBtn').onclick = () => $('fileInput').click();
+$('fileStop').onclick = () => { stopListening(); stopAudio(); log('Recording stopped'); };
 $('fileInput').onchange = async () => {
   const f = $('fileInput').files[0]; if (!f) return;
   $('settings').classList.remove('on');
-  if (running) stop();
-  try { await start(await f.arrayBuffer()); } catch (e) { log('File failed: ' + e.message); stop(); }
+  stopListening(); stopAudio();
+  try { await startAudio(await f.arrayBuffer()); await startListening(); } catch (e) { log('File failed: ' + e.message); stopListening(); stopAudio(); }
   $('fileInput').value = '';
 };
-$('prevBtn').onclick = () => { if (shown > 0 && META) { const s = shabadOf(shown); if (shown > META.start[s]) { tracker.line = shown - 1; render(shown - 1); } } };
-$('nextBtn').onclick = () => { if (shown >= 0 && META) { const s = shabadOf(shown); const end = s + 1 < META.start.length ? META.start[s + 1] : META.total; if (shown + 1 < end) { tracker.line = shown + 1; render(shown + 1); } } };
+new ResizeObserver(() => document.documentElement.style.setProperty('--barH', $('bar').offsetHeight + 'px')).observe($('bar'));
 const bind = (id, k, after) => { const el = $(id); if (el.type === 'checkbox') { el.checked = S[k]; el.onchange = () => { S[k] = el.checked; save(); applyLook(); after && after(); }; } else { el.value = S[k]; el.oninput = () => { S[k] = el.type === 'range' ? +el.value : el.value; save(); applyLook(); after && after(); }; } };
 bind('optTr', 'tr', () => render(shown, true)); bind('optTl', 'tl', () => render(shown, true)); bind('optPa', 'pa', () => render(shown, true));
-bind('optNext', 'next', () => render(shown, true)); bind('optDark', 'dark'); bind('optBlank', 'blank'); bind('optSize', 'size'); bind('optLang', 'lang'); bind('optVad', 'vad', () => { manualRejected = false; });
+bind('optNext', 'next', () => render(shown, true)); bind('optFollow', 'follow'); bind('optDark', 'dark'); bind('optBlank', 'blank'); bind('optSize', 'size'); bind('optLang', 'lang'); bind('optVad', 'vad', () => { manualRejected = false; });
 document.querySelectorAll('[data-src]').forEach(cb => { cb.checked = cb.id in S.srcs ? S.srcs[cb.id] !== false : !cb.dataset.off; cb.onchange = () => { S.srcs[cb.id] = cb.checked; save(); }; });
 $('keyInput').value = S.key;
 applyLook();
@@ -428,7 +524,7 @@ async function bestMatchText(text) {
   return `${best.score.toFixed(2)} → ${d ? d.line[0] : ''} (${name}, ${unit} ${META.page[best.shabad]})`;
 }
 function startDiag() {
-  if (!running) { $('diagOut').innerHTML = 'Press <b>Start</b> (or test with a recording) first, then press Compare.'; return; }
+  if (!ctx) { $('diagOut').innerHTML = 'Press <b>Find</b> (or test with a recording) first, then press Compare while it listens.'; return; }
   diagBuf = []; liveDuringDiag = '';
   $('diagBtn').disabled = true;
   $('diagOut').textContent = 'Recording 15 seconds…';
@@ -461,10 +557,10 @@ $('diagBtn').onclick = startDiag;
 // ---------- boot ----------
 call('init').then(meta => {
   META = meta;
-  tracker = new GTracker.Tracker(engineApi, meta);
+  tracker = new GTracker.Tracker(engineApi, meta, { lockEvidence: 0.9, immScore: 0.85, immRaw: 22 });
   tracker.setSources(selectedSources());
   $('loadMsg').textContent = S.key ? 'Ready.' : 'Ready. First, add your Gemini key in ⚙ Settings.';
-  $('startBtn').disabled = false;
+  $('findBtn').disabled = false; rahaoSet = new Set(meta.rahao);
   log(`Database loaded: ${meta.total.toLocaleString()} lines`);
 }).catch(e => { $('loadMsg').textContent = 'Could not load the database: ' + e.message; });
 })();
