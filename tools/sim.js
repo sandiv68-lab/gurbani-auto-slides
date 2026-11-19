@@ -1,7 +1,7 @@
 // Simulates noisy kirtan transcripts to measure the tracker.
 const fs = require('fs');
 const { Engine } = require('./app/engine.js');
-const { Tracker } = require('./app/tracker.js');
+const { Tracker, isKatha } = require('./app/tracker.js');
 const Skeleton = require('./app/skeleton.js');
 
 const meta = JSON.parse(fs.readFileSync('app/data/shabads.json'));
@@ -63,16 +63,19 @@ async function run(nShabads, srcs) {
   const stats = { lagOk: 0, steps: 0, onShabadSteps: 0, correctLine: 0, wrongShabad: 0, lockDelays: [], misses: 0 };
   let curTruth = -9, truthStartIdx = 0, locked = false, now = 0;
   const words = [];
+  const rawWords = [];
   const hist = [];
   for (let i = 0; i < stream.length; i += 2) {
-    for (const [w] of stream.slice(i, i + 2)) words.push(...Skeleton.words(w));
+    for (const [w] of stream.slice(i, i + 2)) { words.push(...Skeleton.words(w)); rawWords.push(w); }
     now += 1500;
     const [, ts, tl] = stream[Math.min(i + 1, stream.length - 1)];
     if (ts !== curTruth) {
       if (curTruth >= 0 && !locked) stats.misses++;
       curTruth = ts; truthStartIdx = i; locked = false;
     }
-    const snap = await tr.update(words.slice(-40), now);
+    const fin = (i / 2) % 4 === 3;
+    let snap = await tr.update(words.slice(-40), now, { final: fin, katha: isKatha(rawWords.slice(-10).join(' ')) });
+    if (!fin) { snap = await tr.update(words.slice(-40).concat([]), now + 500, { final: false, katha: isKatha(rawWords.slice(-10).join(' ')) }); }
     hist.push(tl);
     const txt = l => l >= 0 ? (shabadLines(eng.lineShabad[l])[l - meta.start[eng.lineShabad[l]]] || [''])[0] : '?';
     if (ts >= 0 && snap.shabad === ts && [hist.at(-1), hist.at(-2), hist.at(-3)].some(h => h !== undefined && h >= 0 && txt(h) === txt(snap.line))) stats.lagOk++;

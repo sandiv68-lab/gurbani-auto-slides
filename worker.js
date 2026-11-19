@@ -1,4 +1,5 @@
-importScripts('engine.js');
+const V = new URLSearchParams(self.location.search).get('v') || '1';
+importScripts('engine.js?v=' + V);
 let eng = null;
 self.onmessage = async (e) => {
   const { id, type, args } = e.data;
@@ -6,8 +7,8 @@ self.onmessage = async (e) => {
     let result;
     if (type === 'init') {
       const [idx, meta] = await Promise.all([
-        fetch('data/index.txt').then(r => { if (!r.ok) throw new Error('index ' + r.status); return r.text(); }),
-        fetch('data/shabads.json').then(r => { if (!r.ok) throw new Error('meta ' + r.status); return r.json(); }),
+        fetch('data/index.txt?v=' + V).then(r => { if (!r.ok) throw new Error('index ' + r.status); return r.text(); }),
+        fetch('data/shabads.json?v=' + V).then(r => { if (!r.ok) throw new Error('meta ' + r.status); return r.json(); }),
       ]);
       eng = new GEngine.Engine(idx, meta);
       result = meta;

@@ -5,7 +5,7 @@ const MODEL = 'models/gemini-3.5-transcribe-live';
 const WS_BASE = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
 const ROTATE_MS = 9 * 60 * 1000; // sessions last max 10 minutes
 const SRC_NAME = { 1: ['Sri Guru Granth Sahib Ji', 'Ang'], 2: ['Sri Dasam Granth', 'Ang'], 3: ['Vaaran Bhai Gurdas Ji', 'Vaar'],
-  4: ['Kabit Bhai Gurdas Ji', 'Kabit'], 5: ['Bhai Nand Lal Ji', 'Ghazal'], 6: ['Bhai Nand Lal Ji', 'Page'], 7: ['Bhai Nand Lal Ji', 'Page'], 8: ['Bhai Nand Lal Ji', 'Page'] };
+  4: ['Kabit Bhai Gurdas Ji', 'Kabit'], 12: ['Sri Dasam Granth', 'Ang'], 5: ['Bhai Nand Lal Ji', 'Ghazal'], 6: ['Bhai Nand Lal Ji', 'Page'], 7: ['Bhai Nand Lal Ji', 'Page'], 8: ['Bhai Nand Lal Ji', 'Page'] };
 
 // ---------- settings ----------
 const store = {
@@ -29,7 +29,8 @@ function log(msg) {
 }
 
 // ---------- worker / engine ----------
-const worker = new Worker('worker.js');
+const V = window.APP_V || '1';
+const worker = new Worker('worker.js?v=' + V);
 let reqId = 0; const pending = new Map();
 worker.onmessage = e => { const p = pending.get(e.data.id); if (!p) return; pending.delete(e.data.id); e.data.error ? p.reject(new Error(e.data.error)) : p.resolve(e.data.result); };
 const call = (type, ...args) => new Promise((resolve, reject) => { const id = ++reqId; pending.set(id, { resolve, reject }); worker.postMessage({ id, type, args }); });
@@ -43,7 +44,7 @@ let META = null, tracker = null;
 // ---------- content chunks ----------
 const chunks = new Map(), paChunks = new Map();
 function loadChunk(map, dir, i) {
-  if (!map.has(i)) map.set(i, fetch(`data/${dir}/${i}.json`).then(r => r.json()).catch(e => { map.delete(i); throw e; }));
+  if (!map.has(i)) map.set(i, fetch(`data/${dir}/${i}.json?v=${V}`).then(r => r.json()).catch(e => { map.delete(i); throw e; }));
   return map.get(i);
 }
 async function getLine(globalLine) {
@@ -111,7 +112,7 @@ function setStatus() {
   const snap = lastSnap;
   if (snap && snap.mode === 'locked' && snap.shabad >= 0) {
     const [name, unit] = SRC_NAME[META.src[snap.shabad]] || ['', 'Page'];
-    const short = { 1: 'SGGS', 2: 'Dasam', 3: 'Bhai Gurdas', 4: 'Bhai Gurdas', 5: 'Nand Lal', 6: 'Nand Lal', 7: 'Nand Lal', 8: 'Nand Lal' }[META.src[snap.shabad]];
+    const short = { 1: 'SGGS', 2: 'Dasam', 12: 'Dasam', 3: 'Bhai Gurdas', 4: 'Bhai Gurdas', 5: 'Nand Lal', 6: 'Nand Lal', 7: 'Nand Lal', 8: 'Nand Lal' }[META.src[snap.shabad]];
     st.innerHTML = `<span class="dot locked"></span><b>Following</b><br>${short} · ${unit} ${META.page[snap.shabad]}`;
   } else {
     st.innerHTML = `<span class="dot search"></span><b>Listening</b><br>finding the shabad…`;
@@ -130,17 +131,19 @@ function onTranscript(kind, text) {
   $('dbgText').innerHTML = escapeHTML(finalText.slice(-320)) + ' <i>' + escapeHTML(interimText) + '</i>';
   if (!/[਀-੿]/.test(text)) log('Not Gurmukhi: ' + text.slice(0, 60));
 }
-let busy = false;
+let busy = false, lastFinalCount = 0, lastNote = '';
 async function tick() {
   if (!tracker || busy) return;
   const full = (finalText + ' ' + interimText).trim();
-  if (full === lastProcessed) return;
-  lastProcessed = full; busy = true;
+  const isFinal = nFinal !== lastFinalCount;
+  if (full === lastProcessed && !isFinal) return;
+  lastProcessed = full; lastFinalCount = nFinal; busy = true;
   try {
     const words = Skeleton.words(full).slice(-40);
-    const snap = await tracker.update(words);
+    const snap = await tracker.update(words, Date.now(), { final: isFinal, katha: GTracker.isKatha(full) });
     lastSnap = snap;
-    if (snap.note) log(snap.note);
+    if (snap.note && snap.note !== lastNote) log(snap.note);
+    lastNote = snap.note;
     if (snap.mode === 'search' && snap.note && snap.note.startsWith('lost') && S.blank && !blanked) {
       $('slide').innerHTML = ''; shown = -1; blanked = true;
     }
@@ -303,7 +306,7 @@ async function start(fileBuffer) {
     ctx.createMediaStreamSource(micStream).connect(node);
   }
   running = true; ready = false; connError = '';
-  tracker.reset(); tracker.setSources(selectedSources()); finalText = interimText = lastProcessed = ''; lockedShabad = -1; nInterim = nFinal = nWords = 0; $('dbgText').textContent = '—'; $('dbgGuess').textContent = '';
+  tracker.reset(); tracker.setSources(selectedSources()); finalText = interimText = lastProcessed = ''; lockedShabad = -1; nInterim = nFinal = nWords = 0; lastFinalCount = 0; $('dbgText').textContent = '—'; $('dbgGuess').textContent = '';
   $('startBtn').textContent = 'Stop'; $('startBtn').className = 'btn stop';
   try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
   setStatus();
@@ -372,7 +375,7 @@ $('nextBtn').onclick = () => { if (shown >= 0 && META) { const s = shabadOf(show
 const bind = (id, k, after) => { const el = $(id); if (el.type === 'checkbox') { el.checked = S[k]; el.onchange = () => { S[k] = el.checked; save(); applyLook(); after && after(); }; } else { el.value = S[k]; el.oninput = () => { S[k] = el.type === 'range' ? +el.value : el.value; save(); applyLook(); after && after(); }; } };
 bind('optTr', 'tr', () => render(shown, true)); bind('optTl', 'tl', () => render(shown, true)); bind('optPa', 'pa', () => render(shown, true));
 bind('optNext', 'next', () => render(shown, true)); bind('optDark', 'dark'); bind('optBlank', 'blank'); bind('optSize', 'size'); bind('optLang', 'lang'); bind('optVad', 'vad', () => { manualRejected = false; });
-document.querySelectorAll('[data-src]').forEach(cb => { cb.checked = S.srcs[cb.id] !== false; cb.onchange = () => { S.srcs[cb.id] = cb.checked; save(); }; });
+document.querySelectorAll('[data-src]').forEach(cb => { cb.checked = cb.id in S.srcs ? S.srcs[cb.id] !== false : !cb.dataset.off; cb.onchange = () => { S.srcs[cb.id] = cb.checked; save(); }; });
 $('keyInput').value = S.key;
 applyLook();
 

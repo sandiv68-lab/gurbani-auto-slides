@@ -13,6 +13,7 @@ fs.mkdirSync(path.join(OUT, 'p'), { recursive: true });
 const shabads = fs.readFileSync(path.join(__dirname, 'raw', 'lines.jsonl'), 'utf8')
   .split('\n').filter(Boolean).map(JSON.parse);
 
+const DK = new Set(JSON.parse(fs.readFileSync(path.join(__dirname, 'raw', 'dasam_kirtan.json'))));
 const index = [];
 const meta = { id: [], src: [], page: [], start: [], rahao: [], chunk: CH, total: 0 };
 let cChunk = [], pChunk = [];
@@ -23,7 +24,7 @@ const flush = (n) => {
 };
 
 shabads.forEach((sh, i) => {
-  meta.id.push(sh.id); meta.src.push(sh.src); meta.page.push(sh.page);
+  meta.id.push(sh.id); meta.src.push(sh.src === 2 && !DK.has(sh.id) ? 12 : sh.src); meta.page.push(sh.page);
   meta.start.push(index.length);
   const c = [], p = [];
   for (const [lid, ascii, type, translit, en, pa] of sh.lines) {

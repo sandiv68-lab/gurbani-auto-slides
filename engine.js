@@ -99,8 +99,8 @@
         if (srcOk && !srcOk.includes(this.meta.src[s])) continue;
         const r = this.scoreLine(win, wW, l);
         let score = r.score;
-        if (this.meta.src[s] === 2) score *= 0.97; // Dasam Granth: break ties towards others
-        res.push({ line: l, shabad: s, score, raw: r.raw });
+        if (this.meta.src[s] === 2 || this.meta.src[s] === 12) score *= 0.97; // Dasam Granth: break ties towards others
+        res.push({ line: l, shabad: s, score, raw: r.raw, sig: String.fromCharCode.apply(null, this.lines[l]) });
       }
       res.sort((a, b) => b.score - a.score);
       return res.slice(0, max);
