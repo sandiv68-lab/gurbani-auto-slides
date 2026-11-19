@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#eef5f3">
+<title>Gurbani Auto Slides</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%232f7d6d%22/%3E%3Ctext x=%2216%22 y=%2223%22 font-size=%2218%22 text-anchor=%22middle%22 fill=%22white%22%3E%E0%A9%B4%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Gurmukhi:wght@500;600&family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #eef5f3; --gurmukhi: #56637a; --trans: #7d8896; --translit: #8a949f;
+    --heavy: #f0a54a; --light: #5fae8b; --bar: rgba(255,255,255,.92); --barText: #333; --muted: #7a8590;
+    --accent: #2f7d6d; --panel: #fff; --line: #dfe6e4; --scale: 1;
+  }
+  body.dark {
+    --bg: #0e1013; --gurmukhi: #f1f1ee; --trans: #b8c4cf; --translit: #98a3ad;
+    --bar: rgba(24,27,31,.92); --barText: #e9e9e9; --muted: #8d97a0; --panel: #1b1e23; --line: #2c3138;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--barText);
+    font-family: 'Open Sans', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
+  button { font: inherit; }
+
+  /* Slide */
+  #slide { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; text-align: center; padding: 6vh 6vw; gap: calc(3.2vh * var(--scale)); }
+  .gur { font-family: 'Noto Sans Gurmukhi', sans-serif; font-weight: 600; color: var(--gurmukhi);
+    font-size: calc(min(7.2vw, 8.5vh) * var(--scale)); line-height: 1.45; max-width: 22ch; }
+  .tr { color: var(--trans); font-weight: 600; font-size: calc(min(4.6vw, 5.4vh) * var(--scale)); line-height: 1.3; max-width: 30ch; }
+  .tl { color: var(--translit); font-weight: 600; font-size: calc(min(4.6vw, 5.4vh) * var(--scale)); line-height: 1.3; max-width: 30ch; }
+  .pa { font-family: 'Noto Sans Gurmukhi', sans-serif; color: var(--trans); font-size: calc(min(3.6vw, 4.2vh) * var(--scale)); line-height: 1.5; max-width: 40ch; }
+  .next { font-family: 'Noto Sans Gurmukhi', sans-serif; color: var(--muted); opacity: .6; font-size: calc(min(3.6vw, 4.2vh) * var(--scale)); }
+  .v-heavy { color: var(--heavy); }
+  .v-light { color: var(--light); }
+  #placeholder { color: var(--muted); font-size: 1.1rem; max-width: 34ch; line-height: 1.6; }
+  #placeholder b { color: var(--barText); }
+
+  /* Top bar */
+  #bar { position: fixed; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; padding-top: max(8px, env(safe-area-inset-top)); background: var(--bar);
+    border-bottom: 1px solid var(--line); transition: transform .25s; z-index: 5; }
+  #bar.hidden { transform: translateY(-110%); }
+  .btn { border: 1px solid var(--line); background: var(--panel); color: var(--barText); border-radius: 10px;
+    padding: 8px 12px; min-height: 40px; cursor: pointer; }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+  .btn.stop { background: #b4473c; border-color: #b4473c; color: #fff; font-weight: 600; }
+  .btn.icon { padding: 8px 10px; min-width: 40px; }
+  #status { flex: 1; min-width: 0; font-size: .82rem; line-height: 1.25; color: var(--muted); overflow: hidden; }
+  #status b { color: var(--barText); }
+  #meter { width: 46px; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; flex: none; }
+  #meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .1s; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #aaa; margin-right: 5px; vertical-align: middle; }
+  .dot.search { background: #e0a43a; } .dot.locked { background: #3aa76d; } .dot.off { background: #aaa; } .dot.err { background: #c8463a; }
+
+  /* Debug strip */
+  #debug { position: fixed; left: 0; right: 0; bottom: 0; max-height: 34vh; overflow: auto; z-index: 4;
+    background: var(--bar); border-top: 1px solid var(--line); font-size: .78rem; padding: 8px 10px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom)); color: var(--barText); display: none; }
+  #debug.on { display: block; }
+  #debug .t { font-family: 'Noto Sans Gurmukhi', sans-serif; font-size: .95rem; color: var(--barText); }
+  #debug .t i { color: var(--muted); font-style: normal; }
+  #debug .k { color: var(--muted); }
+  #debug pre { margin: 4px 0 0; white-space: pre-wrap; font-size: .72rem; color: var(--muted); }
+
+  /* Settings */
+  #settings { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: none; z-index: 10; align-items: flex-end; justify-content: center; }
+  #settings.on { display: flex; }
+  .sheet { background: var(--panel); color: var(--barText); width: 100%; max-width: 560px; max-height: 92vh; overflow: auto;
+    border-radius: 16px 16px 0 0; padding: 18px 18px 28px; }
+  .sheet h2 { margin: 0 0 4px; font-size: 1.15rem; }
+  .sheet h3 { margin: 20px 0 8px; font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .row { display: flex; align-items: center; gap: 10px; margin: 8px 0; flex-wrap: wrap; }
+  .row label { flex: 1; min-width: 150px; }
+  input[type=password], input[type=text], select { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--barText); font: inherit; }
+  input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent); }
+  input[type=range] { flex: 1; accent-color: var(--accent); }
+  .note { font-size: .8rem; color: var(--muted); line-height: 1.5; }
+  .ok { color: #2f8a5b; } .bad { color: #c8463a; }
+  #fileInput { display: none; }
+</style>
+</head>
+<body>
+<div id="slide">
+  <div id="placeholder">
+    <b>Gurbani Auto Slides</b><br>
+    Press <b>Start</b> and hold the phone near the kirtan. The right line appears on its own.<br><br>
+    <span id="loadMsg">Loading Gurbani database…</span>
+  </div>
+</div>
+
+<div id="bar">
+  <button id="startBtn" class="btn primary" disabled>Start</button>
+  <div id="meter"><i></i></div>
+  <div id="status"><span class="dot off"></span>Not listening</div>
+  <button id="prevBtn" class="btn icon" title="Previous line">‹</button>
+  <button id="nextBtn" class="btn icon" title="Next line">›</button>
+  <button id="debugBtn" class="btn icon" title="Show what it hears">🔍</button>
+  <button id="setBtn" class="btn icon" title="Settings">⚙</button>
+</div>
+
+<div id="debug">
+  <div><span class="k">Heard:</span> <span class="t" id="dbgText">—</span></div>
+  <div id="dbgState" class="k"></div>
+  <pre id="dbgLog"></pre>
+</div>
+
+<div id="settings">
+  <div class="sheet">
+    <div class="row" style="justify-content:space-between"><h2>Settings</h2><button class="btn" id="closeSet">Done</button></div>
+
+    <h3>Gemini API key</h3>
+    <input id="keyInput" type="password" placeholder="Paste your key from aistudio.google.com" autocomplete="off">
+    <div class="row">
+      <button class="btn" id="testKey">Test key</button>
+      <button class="btn" id="showKey">Show</button>
+      <span id="keyResult" class="note"></span>
+    </div>
+    <div class="note">Stored only in this browser on this phone.</div>
+
+    <h3>Test with a recording</h3>
+    <div class="row">
+      <button class="btn" id="fileBtn">Choose kirtan audio file…</button>
+      <input id="fileInput" type="file" accept="audio/*,video/*">
+    </div>
+    <div class="note">Plays the file and listens to it the same way as the mic, so you can test at home.</div>
+
+    <h3>Show on screen</h3>
+    <div class="row"><label for="optTr">English translation</label><input type="checkbox" id="optTr"></div>
+    <div class="row"><label for="optTl">Transliteration</label><input type="checkbox" id="optTl"></div>
+    <div class="row"><label for="optPa">Punjabi translation</label><input type="checkbox" id="optPa"></div>
+    <div class="row"><label for="optNext">Next line (small)</label><input type="checkbox" id="optNext"></div>
+    <div class="row"><label for="optDark">Dark background</label><input type="checkbox" id="optDark"></div>
+    <div class="row"><label for="optBlank">Blank screen when lost</label><input type="checkbox" id="optBlank"></div>
+    <div class="row"><label for="optSize">Text size</label><input type="range" id="optSize" min="0.6" max="1.5" step="0.05"></div>
+
+    <h3>Search in</h3>
+    <div class="row"><label for="src1">Sri Guru Granth Sahib Ji</label><input type="checkbox" id="src1" data-src="1"></div>
+    <div class="row"><label for="src3">Vaaran &amp; Kabit Bhai Gurdas Ji</label><input type="checkbox" id="src3" data-src="3,4"></div>
+    <div class="row"><label for="src2">Sri Dasam Granth</label><input type="checkbox" id="src2" data-src="2"></div>
+    <div class="row"><label for="src5">Bhai Nand Lal Ji</label><input type="checkbox" id="src5" data-src="5,6,7,8"></div>
+
+    <h3>Speech recognition</h3>
+    <div class="row"><label for="optLang">Language code</label>
+      <select id="optLang"><option value="pa-IN">pa-IN (Punjabi)</option><option value="pa-Guru-IN">pa-Guru-IN (Punjabi, Gurmukhi)</option><option value="">Auto-detect</option></select></div>
+
+    <h3>About</h3>
+    <div class="note">Gurbani text, translations and transliterations from the Shabad OS Database (open source). Translations belong to their authors: Dr Sant Singh Khalsa, Bhai Manmohan Singh, Dr Jodh Singh, Bhai Vir Singh and others. Speech-to-text by Google Gemini. Test version — not for unattended use yet.</div>
+  </div>
+</div>
+
+<script src="skeleton.js"></script>
+<script src="engine.js"></script>
+<script src="tracker.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
