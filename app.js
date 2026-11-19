@@ -15,7 +15,7 @@ const store = {
 const S = {
   key: store.get('key', ''), tr: store.get('tr', true), tl: store.get('tl', true), pa: store.get('pa', false),
   next: store.get('next', false), dark: store.get('dark', false), blank: store.get('blank', false),
-  size: store.get('size', 1), lang: store.get('lang', 'pa-IN'), debug: store.get('debug', true),
+  size: store.get('size', 1), lang: store.get('lang', 'pa-IN'), vad: store.get('vad', 'manual'), debug: store.get('debug', true),
   srcs: store.get('srcs', { src1: true, src3: true, src2: true, src5: true }),
 };
 function save() { for (const k in S) store.set(k, S[k]); }
@@ -160,10 +160,12 @@ setInterval(tick, 500);
 let lockedShabad = -1, vocabShabad = -1;
 
 // ---------- Gemini Live ----------
+let manualRejected = false, chunkSamples = 0;
+const CHUNK = 16000 * 6;
 let running = false, ready = false, connError = '', active = null, rotateTimer = null, reconnectDelay = 1000;
 function authParam(key) { return 'key=' + encodeURIComponent(key); }
 
-function openSession(vocab) {
+function openSession(vocab, manual = S.vad === 'manual' && !manualRejected) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`${WS_BASE}?${authParam(S.key)}`);
     let settled = false;
@@ -172,12 +174,14 @@ function openSession(vocab) {
       const tc = { mode: 'VERBATIM' };
       tc.languageCodes = S.lang ? [S.lang] : [];
       if (vocab && vocab.length) tc.customVocabulary = vocab;
-      ws.send(JSON.stringify({ setup: { model: MODEL, generationConfig: { responseModalities: ['TEXT'] }, inputAudioTranscription: tc } }));
+      const setup = { model: MODEL, generationConfig: { responseModalities: ['TEXT'] }, inputAudioTranscription: tc };
+      if (manual) setup.realtimeInputConfig = { automaticActivityDetection: { disabled: true } };
+      ws.send(JSON.stringify({ setup }));
     };
     ws.onmessage = async ev => {
       let msg;
       try { msg = JSON.parse(ev.data instanceof Blob ? await ev.data.text() : ev.data); } catch { return; }
-      if (msg.setupComplete && !settled) { settled = true; clearTimeout(t); resolve(ws); return; }
+      if (msg.setupComplete && !settled) { settled = true; clearTimeout(t); ws._manual = manual; resolve(ws); return; }
       const sc = msg.serverContent;
       if (sc) {
         if (sc.interimInputTranscription && ws === active) onTranscript('interim', sc.interimInputTranscription.text);
@@ -207,11 +211,20 @@ async function rotate() {
   let vocab = null;
   if (lockedShabad >= 0) { try { vocab = await shabadWords(lockedShabad); vocabShabad = lockedShabad; } catch {} }
   try {
-    const ws = await openSession(vocab);
+    let ws;
+    try { ws = await openSession(vocab); }
+    catch (e) {
+      if (S.vad === 'manual' && !manualRejected && !/key|API|permission|auth/i.test(e.message)) {
+        manualRejected = true; log('Chunk mode refused (' + e.message + ') — using Google auto mode');
+        ws = await openSession(vocab, false);
+      } else throw e;
+    }
     if (!running) { ws.close(); return; }
     const old = active; active = ws; ready = true; connError = ''; reconnectDelay = 1000;
+    chunkSamples = 0;
+    if (ws._manual) { ws.send(JSON.stringify({ realtimeInput: { activityStart: {} } })); log('Listening in 6-second chunks'); }
     if (old && old.readyState === WebSocket.OPEN) {
-      try { old.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } })); } catch {}
+      try { old.send(JSON.stringify(old._manual ? { realtimeInput: { activityEnd: {} } } : { realtimeInput: { audioStreamEnd: true } })); } catch {}
       setTimeout(() => { try { old.close(); } catch {} }, 3000);
     }
     rotateTimer = setTimeout(rotate, ROTATE_MS);
@@ -230,6 +243,14 @@ function sendPCM(int16) {
   let bin = '';
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
   active.send(JSON.stringify({ realtimeInput: { audio: { data: btoa(bin), mimeType: 'audio/pcm;rate=16000' } } }));
+  if (active._manual) {
+    chunkSamples += int16.length;
+    if (chunkSamples >= CHUNK) {
+      chunkSamples = 0;
+      active.send(JSON.stringify({ realtimeInput: { activityEnd: {} } }));
+      active.send(JSON.stringify({ realtimeInput: { activityStart: {} } }));
+    }
+  }
 }
 
 // ---------- audio ----------
@@ -290,7 +311,7 @@ async function start(fileBuffer) {
 function stop() {
   running = false; ready = false;
   clearTimeout(rotateTimer);
-  if (active) { try { active.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } })); } catch {} const a = active; setTimeout(() => { try { a.close(); } catch {} }, 1500); active = null; }
+  if (active) { try { active.send(JSON.stringify(active._manual ? { realtimeInput: { activityEnd: {} } } : { realtimeInput: { audioStreamEnd: true } })); } catch {} const a = active; setTimeout(() => { try { a.close(); } catch {} }, 1500); active = null; }
   if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
   if (fileSrc) { try { fileSrc.stop(); } catch {} fileSrc = null; }
   if (node) { try { node.disconnect(); } catch {} }
@@ -347,7 +368,7 @@ $('prevBtn').onclick = () => { if (shown > 0 && META) { const s = shabadOf(shown
 $('nextBtn').onclick = () => { if (shown >= 0 && META) { const s = shabadOf(shown); const end = s + 1 < META.start.length ? META.start[s + 1] : META.total; if (shown + 1 < end) { tracker.line = shown + 1; render(shown + 1); } } };
 const bind = (id, k, after) => { const el = $(id); if (el.type === 'checkbox') { el.checked = S[k]; el.onchange = () => { S[k] = el.checked; save(); applyLook(); after && after(); }; } else { el.value = S[k]; el.oninput = () => { S[k] = el.type === 'range' ? +el.value : el.value; save(); applyLook(); after && after(); }; } };
 bind('optTr', 'tr', () => render(shown, true)); bind('optTl', 'tl', () => render(shown, true)); bind('optPa', 'pa', () => render(shown, true));
-bind('optNext', 'next', () => render(shown, true)); bind('optDark', 'dark'); bind('optBlank', 'blank'); bind('optSize', 'size'); bind('optLang', 'lang');
+bind('optNext', 'next', () => render(shown, true)); bind('optDark', 'dark'); bind('optBlank', 'blank'); bind('optSize', 'size'); bind('optLang', 'lang'); bind('optVad', 'vad', () => { manualRejected = false; });
 document.querySelectorAll('[data-src]').forEach(cb => { cb.checked = S.srcs[cb.id] !== false; cb.onchange = () => { S.srcs[cb.id] = cb.checked; save(); }; });
 $('keyInput').value = S.key;
 applyLook();
