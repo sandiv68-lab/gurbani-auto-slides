@@ -56,7 +56,7 @@
   .dot.search { background: #e0a43a; } .dot.locked { background: #3aa76d; } .dot.off { background: #aaa; } .dot.err { background: #c8463a; }
 
   /* Debug strip */
-  #debug { position: fixed; left: 0; right: 0; bottom: 0; max-height: 34vh; overflow: auto; z-index: 4;
+  #debug { position: fixed; left: 0; right: 0; bottom: 0; max-height: 45vh; overflow: auto; z-index: 4;
     background: var(--bar); border-top: 1px solid var(--line); font-size: .78rem; padding: 8px 10px;
     padding-bottom: max(8px, env(safe-area-inset-bottom)); color: var(--barText); display: none; }
   #debug.on { display: block; }
@@ -115,6 +115,8 @@
   <div id="dbgCount" class="k"></div>
   <div id="dbgState" class="k"></div>
   <div id="dbgGuess" class="k"></div>
+  <div style="margin:6px 0"><button class="btn" id="diagBtn">Compare 15 s on 3 models</button></div>
+  <div id="diagOut"></div>
   <pre id="dbgLog"></pre>
 </div>
 

@@ -122,6 +122,7 @@ function setStatus() {
 let finalText = '', interimText = '', lastProcessed = '', nInterim = 0, nFinal = 0, nWords = 0;
 function onTranscript(kind, text) {
   if (!text) return;
+  if (kind === 'final' && liveDuringDiag !== null) liveDuringDiag += ' ' + text;
   if (kind === 'final') { finalText = (finalText + ' ' + text).slice(-1200); interimText = ''; nFinal++; nWords += text.trim().split(/\s+/).length; }
   else { interimText = text; nInterim++; }
   $('dbgCount').textContent = `Received ${nFinal} finished + ${nInterim} live updates · ${nWords} words`;
@@ -237,7 +238,9 @@ async function rotate() {
   }
 }
 
+let diagBuf = null;
 function sendPCM(int16) {
+  if (diagBuf) { diagBuf.push(int16); if (diagBuf.length * 1600 >= 16000 * 15) finishDiag(); }
   if (!active || !ready || active.readyState !== WebSocket.OPEN) return;
   const bytes = new Uint8Array(int16.buffer);
   let bin = '';
@@ -372,6 +375,85 @@ bind('optNext', 'next', () => render(shown, true)); bind('optDark', 'dark'); bin
 document.querySelectorAll('[data-src]').forEach(cb => { cb.checked = S.srcs[cb.id] !== false; cb.onchange = () => { S.srcs[cb.id] = cb.checked; save(); }; });
 $('keyInput').value = S.key;
 applyLook();
+
+
+// ---------- diagnosis: compare models on the same 15 s ----------
+const REST = 'https://generativelanguage.googleapis.com/v1beta/';
+const KIRTAN_PROMPT = 'This audio is Sikh kirtan: Gurbani being sung, usually with harmonium and tabla. Write down only the words actually sung in this clip, in Gurmukhi script, in the order heard. Do not add lines that are not sung, no translation, no explanation. If nothing is sung, reply with nothing.';
+function wavBase64(chunks) {
+  const n = chunks.reduce((a, c) => a + c.length, 0);
+  const buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const w = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 16000, true); v.setUint32(28, 32000, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+  let o = 44; for (const c of chunks) for (let i = 0; i < c.length; i++, o += 2) v.setInt16(o, c[i], true);
+  const bytes = new Uint8Array(buf); let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+async function pickFlash() {
+  try {
+    const r = await fetch(`${REST}models?pageSize=200&key=${encodeURIComponent(S.key)}`);
+    const j = await r.json();
+    const names = (j.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent')).map(m => m.name.replace('models/', ''));
+    const ok = names.filter(n => /flash/.test(n) && !/lite|live|tts|image|audio|preview|exp|thinking/.test(n));
+    ok.sort((a, b) => parseFloat((b.match(/(\d+(\.\d+)?)/) || [0, 0])[1]) - parseFloat((a.match(/(\d+(\.\d+)?)/) || [0, 0])[1]));
+    return { flash: ok[0] || 'gemini-2.5-flash', transcribe: names.includes('gemini-3.5-transcribe') ? 'gemini-3.5-transcribe' : null, all: names };
+  } catch (e) { return { flash: 'gemini-2.5-flash', transcribe: 'gemini-3.5-transcribe', all: [] }; }
+}
+async function askModel(model, wav, prompt) {
+  const parts = [{ inlineData: { mimeType: 'audio/wav', data: wav } }];
+  if (prompt) parts.push({ text: prompt });
+  const r = await fetch(`${REST}models/${model}:generateContent?key=${encodeURIComponent(S.key)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ role: 'user', parts }] }) });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+  return ((j.candidates || [])[0]?.content?.parts || []).map(p => p.text || '').join(' ').trim();
+}
+async function bestMatchText(text) {
+  const w = Skeleton.words(text);
+  if (w.length < 3) return 'too few words to match';
+  let best = null;
+  for (let i = 0; i + 3 <= w.length; i += 3) {
+    const res = await engineApi.search(w.slice(i, i + 10).join(''), { max: 1, sources: selectedSources() });
+    if (res[0] && (!best || res[0].score > best.score)) best = res[0];
+  }
+  if (!best) return 'no match';
+  const d = await getLine(best.line);
+  const [name, unit] = SRC_NAME[META.src[best.shabad]] || ['', ''];
+  return `${best.score.toFixed(2)} → ${d ? d.line[0] : ''} (${name}, ${unit} ${META.page[best.shabad]})`;
+}
+function startDiag() {
+  if (!running) { $('diagOut').innerHTML = 'Press <b>Start</b> (or test with a recording) first, then press Compare.'; return; }
+  diagBuf = []; liveDuringDiag = '';
+  $('diagBtn').disabled = true;
+  $('diagOut').textContent = 'Recording 15 seconds…';
+}
+let liveDuringDiag = null;
+async function finishDiag() {
+  const chunks = diagBuf; diagBuf = null;
+  const live = liveDuringDiag; liveDuringDiag = null;
+  const out = $('diagOut');
+  out.textContent = 'Sending the same 15 seconds to Google models…';
+  const wav = wavBase64(chunks);
+  let peak = 0; for (const c of chunks) for (let i = 0; i < c.length; i += 4) peak = Math.max(peak, Math.abs(c[i]));
+  const m = await pickFlash();
+  const rows = [['Live model (what the app uses)', Promise.resolve(live)]];
+  if (m.transcribe) rows.push(['Transcribe model (whole clip)', askModel(m.transcribe, wav, null)]);
+  rows.push([`${m.flash} (told it is kirtan)`, askModel(m.flash, wav, KIRTAN_PROMPT)]);
+  let html = `<div class="k">Loudness: ${Math.round(peak / 327.68)}% of max${peak < 3000 ? ' — very quiet, move the phone closer' : ''}</div>`;
+  for (const [label, p] of rows) {
+    let text, match;
+    try { text = await p; match = await bestMatchText(text || ''); }
+    catch (e) { text = '⚠ ' + e.message; match = ''; }
+    html += `<div style="margin-top:6px"><b>${escapeHTML(label)}</b><div class="t">${escapeHTML(text || '(nothing)')}</div><div class="k">Best match: ${escapeHTML(match)}</div></div>`;
+  }
+  out.innerHTML = html;
+  $('diagBtn').disabled = false;
+  log('Compare finished');
+}
+$('diagBtn').onclick = startDiag;
 
 // ---------- boot ----------
 call('init').then(meta => {
