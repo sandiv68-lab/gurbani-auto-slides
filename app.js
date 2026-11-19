@@ -16,9 +16,14 @@ const S = {
   key: store.get('key', ''), tr: store.get('tr', true), tl: store.get('tl', true), pa: store.get('pa', false),
   next: store.get('next', false), dark: store.get('dark', false), blank: store.get('blank', false),
   size: store.get('size', 1), follow: store.get('follow', false), lang: store.get('lang', 'pa-IN'), vad: store.get('vad', 'manual'), debug: store.get('debug', true),
+  rows: store.get('rows', null),
   srcs: store.get('srcs', { src1: true, src3: true, src2: true, src5: true }),
 };
+if (!S.rows) S.rows = [{ k: 'gur', on: true }, { k: 'tr', on: S.tr }, { k: 'tl', on: S.tl }, { k: 'pa', on: S.pa }];
+const ROW_NAME = { gur: 'Gurmukhi', tl: 'Romanised (English letters)', tr: 'English translation', pa: 'Punjabi translation' };
 function save() { for (const k in S) store.set(k, S[k]); }
+const firstRow = () => (S.rows.find(r => r.on) || { k: 'gur' }).k;
+const needPa = () => S.rows.some(r => r.on && r.k === 'pa');
 
 // ---------- logging ----------
 const logLines = [];
@@ -55,7 +60,7 @@ async function getLine(globalLine) {
   const lines = c[s % META.chunk];
   const off = globalLine - META.start[s];
   let pa = null;
-  if (S.pa) { try { pa = (await loadChunk(paChunks, 'p', ci))[s % META.chunk][off]; } catch {} }
+  if (needPa()) { try { pa = (await loadChunk(paChunks, 'p', ci))[s % META.chunk][off]; } catch {} }
   return { s, off, lines, line: lines[off], pa };
 }
 function shabadOf(l) { // binary search on META.start
@@ -80,7 +85,18 @@ function vishraamHTML(text) {
   }).join(' ');
 }
 const escapeHTML = t => (t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
-let shown = -1, renderToken = 0, blanked = false;
+let shown = -1, renderToken = 0, blanked = false, userBlank = false;
+function rowText(k, line, pa) { return k === 'gur' ? line[0] : k === 'tl' ? line[2] : k === 'tr' ? line[3] : pa; }
+function rowHTML(k, text, big) {
+  const html = (k === 'gur' || k === 'tl') ? vishraamHTML(text) : escapeHTML(text);
+  const script = (k === 'gur' || k === 'pa') ? 'gs' : 'lat';
+  return `<div class="${big ? 'big' : 'small'} ${script}${k === 'tl' ? ' tlrow' : ''}">${html}</div>`;
+}
+function fitSlide() { // shrink text until everything fits on screen
+  const slide = $('slide'); let f = 1;
+  document.documentElement.style.setProperty('--fit', 1);
+  while (f > 0.45 && slide.scrollHeight > slide.clientHeight + 2) { f -= 0.07; document.documentElement.style.setProperty('--fit', f.toFixed(2)); }
+}
 async function render(globalLine, force) {
   if (globalLine === shown && !force) return;
   shown = globalLine; const tok = ++renderToken;
@@ -88,20 +104,26 @@ async function render(globalLine, force) {
   if (globalLine < 0) { return; }
   const d = await getLine(globalLine);
   if (tok !== renderToken || !d) return;
-  const [gur, , tl, en] = d.line;
-  let html = `<div class="gur">${vishraamHTML(gur)}</div>`;
-  if (S.tr && en) html += `<div class="tr">${escapeHTML(en)}</div>`;
-  if (S.pa && d.pa) html += `<div class="pa">${escapeHTML(d.pa)}</div>`;
-  if (S.tl && tl) html += `<div class="tl">${vishraamHTML(tl)}</div>`;
-  if (S.next && d.lines[d.off + 1]) html += `<div class="next">${vishraamHTML(d.lines[d.off + 1][0])}</div>`;
-  slide.innerHTML = html;
+  let html = '', first = true;
+  for (const r of S.rows) {
+    if (!r.on) continue;
+    const t = rowText(r.k, d.line, d.pa);
+    if (!t) { if (first) first = false; continue; }
+    html += rowHTML(r.k, t, first); first = false;
+  }
+  if (S.next && d.lines[d.off + 1]) { const nk = firstRow(); const nt = rowText(nk, d.lines[d.off + 1], null) || d.lines[d.off + 1][0]; html += `<div class="next ${nk === 'gur' || nk === 'pa' ? 'gs' : ''}">${(nk === 'gur' || nk === 'tl') ? vishraamHTML(nt) : escapeHTML(nt)}</div>`; }
+  if (userBlank) { slide.innerHTML = ''; }
+  else { slide.innerHTML = html; fitSlide(); }
   blanked = false;
+  $('nextShabadChip').classList.toggle('on', !userBlank && d.off === d.lines.length - 1 && shabadOf(globalLine) + 1 < META.start.length);
 }
+window.addEventListener('resize', () => { if (!userBlank && shown >= 0) fitSlide(); });
 function applyLook() {
   document.body.classList.toggle('dark', S.dark);
   document.documentElement.style.setProperty('--scale', S.size);
   document.querySelector('meta[name=theme-color]').content = S.dark ? '#0e1013' : '#eef5f3';
   $('debug').classList.toggle('on', S.debug);
+  document.body.classList.toggle('dbg', S.debug);
 }
 
 let lastSnap = null;
@@ -133,9 +155,10 @@ function distinctCands(cands, n = 3) {
 async function showCands(list, label, chosen) {
   const box = $('cands');
   if (!list.length) { box.innerHTML = ''; return; }
-  const items = await Promise.all(list.map(async r => { const d = await getLine(r.line).catch(() => null); return { r, text: d ? d.line[0].replace(/[;,.]/g, '').split(/\s+/).slice(0, 5).join(' ') : '' }; }));
+  const k = firstRow(), gs = (k === 'gur' || k === 'pa');
+  const items = await Promise.all(list.map(async r => { const d = await getLine(r.line).catch(() => null); const t = d ? (rowText(k, d.line, d.pa) || d.line[0]) : ''; return { r, text: t.replace(/[;,.]/g, '').split(/\s+/).slice(0, gs ? 5 : 6).join(' ') }; }));
   box.innerHTML = `<span class="chip lbl">${label}</span>` + items.map(({ r, text }, i) =>
-    `<button class="chip${r.shabad === chosen ? ' on' : ''}" data-i="${i}">${r.shabad === chosen ? '✓ ' : ''}<span class="g">${escapeHTML(text)}</span> · ${escapeHTML(where(r.shabad))}</button>`).join('') +
+    `<button class="chip${r.shabad === chosen ? ' on' : ''}" data-i="${i}">${r.shabad === chosen ? '✓ ' : ''}<span class="${gs ? 'g' : ''}">${escapeHTML(text)}</span> · ${escapeHTML(where(r.shabad))}</button>`).join('') +
     (label === 'Found:' ? '<button class="chip" id="candClose">✕</button>' : '');
   box.querySelectorAll('[data-i]').forEach(b => b.onclick = () => chooseShabad(items[+b.dataset.i].r));
   const c = $('candClose'); if (c) c.onclick = () => { box.innerHTML = ''; };
@@ -144,7 +167,7 @@ function chooseShabad(r) {
   if (running && !S.follow) stopListening();
   curShabad = r.shabad;
   if (tracker) { tracker.mode = 'locked'; tracker.shabad = r.shabad; tracker.line = r.line; tracker.ev.clear(); }
-  goLine(r.line);
+  goLine(r.line); setHome(r.line);
   if (foundCands.length) showCands(foundCands, 'Found:', r.shabad);
   setStatus();
 }
@@ -160,7 +183,35 @@ function goLine(l) {
   $('linesBtn').disabled = false;
   if ($('linesSheet').classList.contains('on')) drawLines();
 }
+let homeLine = -1;
+function setHome(l) { homeLine = l; $('homeBtn').disabled = l < 0; if ($('linesSheet').classList.contains('on')) drawLines(); }
+function goHome() { if (homeLine >= 0) goLine(homeLine); }
+function toggleBlank(v) {
+  userBlank = v === undefined ? !userBlank : v;
+  $('blankBtn').classList.toggle('on', userBlank);
+  $('blankBtn').textContent = userBlank ? 'Show' : 'Blank';
+  render(shown, true);
+}
+const HEADING = /^(ਪਉੜੀ|ਸਲੋਕੁ?|ਸਲੋਕ|ਮਹਲਾ|ਮਃ|ਛੰਤ|ਪਦਾ)[\s੦-੯॥।]*(ਮਃ|ਮਹਲਾ)?[\s੦-੯॥।]*$/;
+async function goShabad(d) {
+  if (curShabad < 0) return;
+  const s = curShabad + d; if (s < 0 || s >= META.start.length) return;
+  const first = await getLine(META.start[s]);
+  let off = 0; while (off < first.lines.length - 1 && HEADING.test(first.lines[off][0].trim())) off++;
+  curShabad = s; goLine(META.start[s] + off); setHome(META.start[s] + off); setStatus();
+}
+async function goSection(d) {
+  if (shown < 0) return;
+  const s = shabadOf(shown), first = await getLine(META.start[s]);
+  const ends = []; // global indices of lines that close a pauri / verse (end with a number)
+  first.lines.forEach((L, i) => { if (/[॥।]\s*[੦-੯0-9]+\s*[॥।]?\s*$/.test(L[0])) ends.push(META.start[s] + i); });
+  const starts = [META.start[s], ...ends.map(e => e + 1).filter(x => x < shabadEnd(s))];
+  const uniq = [...new Set(starts)].sort((a, b) => a - b);
+  if (d > 0) { const n = uniq.find(x => x > shown); if (n !== undefined) goLine(n); else goShabad(1); }
+  else { const curStart = uniq.filter(x => x <= shown).pop(); const target = shown > curStart ? curStart : uniq.filter(x => x < curStart).pop(); if (target !== undefined) goLine(target); else goShabad(-1); }
+}
 function step(d) {
+  if (userBlank) { toggleBlank(false); return; }
   if (shown < 0 || !META) return;
   const s = shabadOf(shown), n = shown + d;
   if (n >= META.start[s] && n < shabadEnd(s)) goLine(n);
@@ -181,11 +232,20 @@ function goRahao() {
 async function drawLines() {
   if (curShabad < 0) return;
   const d = await getLine(META.start[curShabad]);
+  const k = firstRow() === 'tl' ? 'tl' : 'gur';
+  $('linesTitle').textContent = where(curShabad);
   $('linesList').innerHTML = d.lines.map((L, i) => {
     const g = META.start[curShabad] + i;
-    return `<div class="ln${g === shown ? ' cur' : ''}" data-l="${g}">${escapeHTML(L[0].replace(/[;,.]/g, ''))}${rahaoSet.has(g) ? '<span class="rh">RAHAO</span>' : ''}</div>`;
+    return `<div class="ln${g === shown ? ' cur' : ''}${k === 'tl' ? '' : ''}" data-l="${g}" style="${k === 'tl' ? "font-family:'Open Sans',sans-serif" : ''}">${escapeHTML((rowText(k, L, null) || L[0]).replace(/[;,.]/g, ''))}${rahaoSet.has(g) ? '<span class="rh">RAHAO</span>' : ''}${g === homeLine ? '<span class="hm">HOME</span>' : ''}</div>`;
   }).join('');
-  $('linesList').querySelectorAll('.ln').forEach(el => el.onclick = () => { goLine(+el.dataset.l); $('linesSheet').classList.remove('on'); });
+  $('linesList').querySelectorAll('.ln').forEach(el => {
+    let t = null, held = false;
+    const l = +el.dataset.l;
+    el.addEventListener('pointerdown', () => { held = false; t = setTimeout(() => { held = true; setHome(l); if (navigator.vibrate) navigator.vibrate(30); }, 550); });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => el.addEventListener(ev, () => clearTimeout(t)));
+    el.addEventListener('contextmenu', e => e.preventDefault());
+    el.onclick = () => { if (held) return; goLine(l); $('linesSheet').classList.remove('on'); };
+  });
   const cur = $('linesList').querySelector('.cur'); if (cur) cur.scrollIntoView({ block: 'center' });
 }
 let rahaoSet = new Set();
@@ -194,7 +254,6 @@ let rahaoSet = new Set();
 let finalText = '', interimText = '', lastProcessed = '', nInterim = 0, nFinal = 0, nWords = 0;
 function onTranscript(kind, text) {
   if (!text) return;
-  if (kind === 'final' && liveDuringDiag !== null) liveDuringDiag += ' ' + text;
   if (kind === 'final') { finalText = (finalText + ' ' + text).slice(-1200); interimText = ''; nFinal++; nWords += text.trim().split(/\s+/).length; }
   else { interimText = text; nInterim++; }
   $('dbgCount').textContent = `Received ${nFinal} finished + ${nInterim} live updates · ${nWords} words`;
@@ -226,6 +285,7 @@ async function tick() {
         const others = distinctCands(snap.candidates).filter(r => r.shabad !== snap.shabad);
         foundCands = [{ shabad: snap.shabad, line: snap.line, score: 1 }, ...others].slice(0, 3);
         showCands(foundCands, 'Found:', snap.shabad);
+        setHome(snap.line);
       }
       goLine(snap.line);
       if (!S.follow) stopListening();
@@ -320,9 +380,7 @@ async function rotate() {
   }
 }
 
-let diagBuf = null;
 function sendPCM(int16) {
-  if (diagBuf) { diagBuf.push(int16); if (diagBuf.length * 1600 >= 16000 * 15) finishDiag(); }
   if (!active || !ready || active.readyState !== WebSocket.OPEN) return;
   const bytes = new Uint8Array(int16.buffer);
   let bin = '';
@@ -446,13 +504,22 @@ document.addEventListener('keydown', e => {
   if (['ArrowRight', 'PageDown', ' '].includes(e.key)) { step(1); e.preventDefault(); }
   else if (['ArrowLeft', 'PageUp'].includes(e.key)) { step(-1); e.preventDefault(); }
   else if (e.key === 'r' || e.key === 'R') goRahao();
+  else if (e.key === 'h' || e.key === 'H') goHome();
+  else if (e.key === 'b' || e.key === 'B' || e.key === '.') toggleBlank();
 });
-$('rahaoBtn').onclick = goRahao;
+$('rahaoBtn').onclick = () => { if (userBlank) toggleBlank(false); goRahao(); };
+$('homeBtn').onclick = () => { if (userBlank) toggleBlank(false); goHome(); };
+$('blankBtn').onclick = () => toggleBlank();
+$('prevShabad').onclick = () => goShabad(-1);
+$('nextShabad').onclick = () => goShabad(1);
+$('prevSection').onclick = () => goSection(-1);
+$('nextSection').onclick = () => goSection(1);
+$('nextShabadChip').onclick = e => { e.stopPropagation(); goShabad(1); };
 $('linesBtn').onclick = () => { $('linesSheet').classList.add('on'); drawLines(); };
 $('closeLines').onclick = () => $('linesSheet').classList.remove('on');
 $('linesSheet').addEventListener('click', e => { if (e.target === $('linesSheet')) $('linesSheet').classList.remove('on'); });
 $('setBtn').onclick = openSettings;
-$('closeSet').onclick = () => { $('settings').classList.remove('on'); if (tracker) tracker.setSources(selectedSources()); render(shown, true); };
+$('closeSet').onclick = () => { $('settings').classList.remove('on'); if (tracker) tracker.setSources(selectedSources()); render(shown, true); if (foundCands.length && $('cands').innerHTML) showCands(foundCands, 'Found:', curShabad); };
 $('settings').addEventListener('click', e => { if (e.target === $('settings')) $('closeSet').onclick(); });
 $('debugBtn').onclick = () => { S.debug = !S.debug; save(); applyLook(); };
 $('testKey').onclick = testKey;
@@ -469,90 +536,19 @@ $('fileInput').onchange = async () => {
 };
 new ResizeObserver(() => document.documentElement.style.setProperty('--barH', $('bar').offsetHeight + 'px')).observe($('bar'));
 const bind = (id, k, after) => { const el = $(id); if (el.type === 'checkbox') { el.checked = S[k]; el.onchange = () => { S[k] = el.checked; save(); applyLook(); after && after(); }; } else { el.value = S[k]; el.oninput = () => { S[k] = el.type === 'range' ? +el.value : el.value; save(); applyLook(); after && after(); }; } };
-bind('optTr', 'tr', () => render(shown, true)); bind('optTl', 'tl', () => render(shown, true)); bind('optPa', 'pa', () => render(shown, true));
 bind('optNext', 'next', () => render(shown, true)); bind('optFollow', 'follow'); bind('optDark', 'dark'); bind('optBlank', 'blank'); bind('optSize', 'size'); bind('optLang', 'lang'); bind('optVad', 'vad', () => { manualRejected = false; });
 document.querySelectorAll('[data-src]').forEach(cb => { cb.checked = cb.id in S.srcs ? S.srcs[cb.id] !== false : !cb.dataset.off; cb.onchange = () => { S.srcs[cb.id] = cb.checked; save(); }; });
+function drawRowList() {
+  $('rowList').innerHTML = S.rows.map((r, i) => `<div class="rowitem"><input type="checkbox" id="row_${r.k}" ${r.on ? 'checked' : ''}><label for="row_${r.k}">${ROW_NAME[r.k]}</label>
+    <button class="btn" data-up="${i}" ${i === 0 ? 'disabled' : ''}>▲</button><button class="btn" data-dn="${i}" ${i === S.rows.length - 1 ? 'disabled' : ''}>▼</button></div>`).join('');
+  S.rows.forEach(r => { $('row_' + r.k).onchange = e => { r.on = e.target.checked; save(); render(shown, true); }; });
+  $('rowList').querySelectorAll('[data-up]').forEach(b => b.onclick = () => { const i = +b.dataset.up; [S.rows[i - 1], S.rows[i]] = [S.rows[i], S.rows[i - 1]]; save(); drawRowList(); render(shown, true); });
+  $('rowList').querySelectorAll('[data-dn]').forEach(b => b.onclick = () => { const i = +b.dataset.dn; [S.rows[i + 1], S.rows[i]] = [S.rows[i], S.rows[i + 1]]; save(); drawRowList(); render(shown, true); });
+}
+drawRowList();
 $('keyInput').value = S.key;
 applyLook();
 
-
-// ---------- diagnosis: compare models on the same 15 s ----------
-const REST = 'https://generativelanguage.googleapis.com/v1beta/';
-const KIRTAN_PROMPT = 'This audio is Sikh kirtan: Gurbani being sung, usually with harmonium and tabla. Write down only the words actually sung in this clip, in Gurmukhi script, in the order heard. Do not add lines that are not sung, no translation, no explanation. If nothing is sung, reply with nothing.';
-function wavBase64(chunks) {
-  const n = chunks.reduce((a, c) => a + c.length, 0);
-  const buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
-  const w = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
-  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true);
-  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 16000, true); v.setUint32(28, 32000, true);
-  v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
-  let o = 44; for (const c of chunks) for (let i = 0; i < c.length; i++, o += 2) v.setInt16(o, c[i], true);
-  const bytes = new Uint8Array(buf); let bin = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-  return btoa(bin);
-}
-async function pickFlash() {
-  try {
-    const r = await fetch(`${REST}models?pageSize=200&key=${encodeURIComponent(S.key)}`);
-    const j = await r.json();
-    const names = (j.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent')).map(m => m.name.replace('models/', ''));
-    const ok = names.filter(n => /flash/.test(n) && !/lite|live|tts|image|audio|preview|exp|thinking/.test(n));
-    ok.sort((a, b) => parseFloat((b.match(/(\d+(\.\d+)?)/) || [0, 0])[1]) - parseFloat((a.match(/(\d+(\.\d+)?)/) || [0, 0])[1]));
-    return { flash: ok[0] || 'gemini-2.5-flash', transcribe: names.includes('gemini-3.5-transcribe') ? 'gemini-3.5-transcribe' : null, all: names };
-  } catch (e) { return { flash: 'gemini-2.5-flash', transcribe: 'gemini-3.5-transcribe', all: [] }; }
-}
-async function askModel(model, wav, prompt) {
-  const parts = [{ inlineData: { mimeType: 'audio/wav', data: wav } }];
-  if (prompt) parts.push({ text: prompt });
-  const r = await fetch(`${REST}models/${model}:generateContent?key=${encodeURIComponent(S.key)}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ role: 'user', parts }] }) });
-  const j = await r.json();
-  if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
-  return ((j.candidates || [])[0]?.content?.parts || []).map(p => p.text || '').join(' ').trim();
-}
-async function bestMatchText(text) {
-  const w = Skeleton.words(text);
-  if (w.length < 3) return 'too few words to match';
-  let best = null;
-  for (let i = 0; i + 3 <= w.length; i += 3) {
-    const res = await engineApi.search(w.slice(i, i + 10).join(''), { max: 1, sources: selectedSources() });
-    if (res[0] && (!best || res[0].score > best.score)) best = res[0];
-  }
-  if (!best) return 'no match';
-  const d = await getLine(best.line);
-  const [name, unit] = SRC_NAME[META.src[best.shabad]] || ['', ''];
-  return `${best.score.toFixed(2)} → ${d ? d.line[0] : ''} (${name}, ${unit} ${META.page[best.shabad]})`;
-}
-function startDiag() {
-  if (!ctx) { $('diagOut').innerHTML = 'Press <b>Find</b> (or test with a recording) first, then press Compare while it listens.'; return; }
-  diagBuf = []; liveDuringDiag = '';
-  $('diagBtn').disabled = true;
-  $('diagOut').textContent = 'Recording 15 seconds…';
-}
-let liveDuringDiag = null;
-async function finishDiag() {
-  const chunks = diagBuf; diagBuf = null;
-  const live = liveDuringDiag; liveDuringDiag = null;
-  const out = $('diagOut');
-  out.textContent = 'Sending the same 15 seconds to Google models…';
-  const wav = wavBase64(chunks);
-  let peak = 0; for (const c of chunks) for (let i = 0; i < c.length; i += 4) peak = Math.max(peak, Math.abs(c[i]));
-  const m = await pickFlash();
-  const rows = [['Live model (what the app uses)', Promise.resolve(live)]];
-  if (m.transcribe) rows.push(['Transcribe model (whole clip)', askModel(m.transcribe, wav, null)]);
-  rows.push([`${m.flash} (told it is kirtan)`, askModel(m.flash, wav, KIRTAN_PROMPT)]);
-  let html = `<div class="k">Loudness: ${Math.round(peak / 327.68)}% of max${peak < 3000 ? ' — very quiet, move the phone closer' : ''}</div>`;
-  for (const [label, p] of rows) {
-    let text, match;
-    try { text = await p; match = await bestMatchText(text || ''); }
-    catch (e) { text = '⚠ ' + e.message; match = ''; }
-    html += `<div style="margin-top:6px"><b>${escapeHTML(label)}</b><div class="t">${escapeHTML(text || '(nothing)')}</div><div class="k">Best match: ${escapeHTML(match)}</div></div>`;
-  }
-  out.innerHTML = html;
-  $('diagBtn').disabled = false;
-  log('Compare finished');
-}
-$('diagBtn').onclick = startDiag;
 
 // ---------- boot ----------
 call('init').then(meta => {
