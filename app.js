@@ -119,13 +119,14 @@ function setStatus() {
 }
 
 // ---------- transcript ----------
-let finalText = '', interimText = '', lastProcessed = '';
+let finalText = '', interimText = '', lastProcessed = '', nInterim = 0, nFinal = 0, nWords = 0;
 function onTranscript(kind, text) {
   if (!text) return;
-  if (kind === 'final') { finalText = (finalText + ' ' + text).slice(-800); interimText = ''; }
-  else interimText = text;
+  if (kind === 'final') { finalText = (finalText + ' ' + text).slice(-1200); interimText = ''; nFinal++; nWords += text.trim().split(/\s+/).length; }
+  else { interimText = text; nInterim++; }
+  $('dbgCount').textContent = `Received ${nFinal} finished + ${nInterim} live updates · ${nWords} words`;
   const full = (finalText + ' ' + interimText).trim();
-  $('dbgText').innerHTML = escapeHTML(finalText.slice(-160)) + ' <i>' + escapeHTML(interimText) + '</i>';
+  $('dbgText').innerHTML = escapeHTML(finalText.slice(-320)) + ' <i>' + escapeHTML(interimText) + '</i>';
   if (!/[਀-੿]/.test(text)) log('Not Gurmukhi: ' + text.slice(0, 60));
 }
 let busy = false;
@@ -147,7 +148,10 @@ async function tick() {
       render(snap.line);
     }
     const c = (snap.candidates || []).slice(0, 3).map(r => `${(SRC_NAME[META.src[r.shabad]] || ['?'])[1]} ${META.page[r.shabad]}:${r.score.toFixed(2)}`).join('  ');
-    $('dbgState').textContent = `Mode: ${snap.mode}${snap.shabad >= 0 ? ' · shabad ' + META.id[snap.shabad] : ''}${c ? ' · top: ' + c : ''}`;
+    $('dbgState').textContent = `Mode: ${snap.mode === 'locked' ? 'following' : 'searching'}${snap.shabad >= 0 ? ' · shabad ' + META.id[snap.shabad] : ''}${c ? ' · top: ' + c : ''}`;
+    const top = (snap.candidates || [])[0];
+    if (snap.mode !== 'locked' && top) getLine(top.line).then(d => { if (d) $('dbgGuess').innerHTML = `Best guess (${top.score.toFixed(2)}, needs about 0.6 to show): <span class="t">${escapeHTML(d.line[0])}</span>`; });
+    else $('dbgGuess').textContent = '';
     setStatus();
   } catch (e) { log('Match error: ' + e.message); }
   busy = false;
@@ -275,7 +279,7 @@ async function start(fileBuffer) {
     ctx.createMediaStreamSource(micStream).connect(node);
   }
   running = true; ready = false; connError = '';
-  tracker.reset(); tracker.setSources(selectedSources()); finalText = interimText = lastProcessed = ''; lockedShabad = -1;
+  tracker.reset(); tracker.setSources(selectedSources()); finalText = interimText = lastProcessed = ''; lockedShabad = -1; nInterim = nFinal = nWords = 0; $('dbgText').textContent = '—'; $('dbgGuess').textContent = '';
   $('startBtn').textContent = 'Stop'; $('startBtn').className = 'btn stop';
   try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
   setStatus();
@@ -307,7 +311,7 @@ async function testKey() {
   const out = $('keyResult');
   if (!S.key) { out.textContent = 'Paste a key first.'; out.className = 'note bad'; return; }
   out.textContent = 'Testing…'; out.className = 'note';
-  try { const ws = await openSession(null); ws.close(); out.textContent = '✓ Key works — connected to Gemini.'; out.className = 'note ok'; }
+  try { const ws = await openSession(null); ws.close(); out.textContent = '✓ Key works — connected to Gemini.'; out.className = 'note ok'; if (META) $('loadMsg').textContent = 'Ready.'; }
   catch (e) { out.textContent = '✗ ' + e.message; out.className = 'note bad'; }
 }
 
@@ -330,7 +334,7 @@ $('settings').addEventListener('click', e => { if (e.target === $('settings')) $
 $('debugBtn').onclick = () => { S.debug = !S.debug; save(); applyLook(); };
 $('testKey').onclick = testKey;
 $('showKey').onclick = () => { const k = $('keyInput'); k.type = k.type === 'password' ? 'text' : 'password'; $('showKey').textContent = k.type === 'password' ? 'Show' : 'Hide'; };
-$('keyInput').addEventListener('change', () => { S.key = $('keyInput').value.trim(); save(); });
+$('keyInput').addEventListener('change', () => { S.key = $('keyInput').value.trim(); save(); if (S.key && META) $('loadMsg').textContent = 'Ready.'; });
 $('fileBtn').onclick = () => $('fileInput').click();
 $('fileInput').onchange = async () => {
   const f = $('fileInput').files[0]; if (!f) return;

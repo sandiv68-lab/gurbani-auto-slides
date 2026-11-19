@@ -81,6 +81,14 @@
   .note { font-size: .8rem; color: var(--muted); line-height: 1.5; }
   .ok { color: #2f8a5b; } .bad { color: #c8463a; }
   #fileInput { display: none; }
+  @media (max-width: 560px) {
+    #bar { flex-wrap: wrap; gap: 6px; }
+    #status { order: 10; flex-basis: 100%; font-size: .85rem; }
+    #status br { display: none; }
+    #status b::after { content: ' · '; font-weight: 400; }
+    #meter { flex: 1; }
+    .btn.icon { min-width: 38px; padding: 6px 8px; }
+  }
 </style>
 </head>
 <body>
@@ -104,7 +112,9 @@
 
 <div id="debug">
   <div><span class="k">Heard:</span> <span class="t" id="dbgText">—</span></div>
+  <div id="dbgCount" class="k"></div>
   <div id="dbgState" class="k"></div>
+  <div id="dbgGuess" class="k"></div>
   <pre id="dbgLog"></pre>
 </div>
 
