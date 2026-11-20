@@ -82,9 +82,14 @@
   .ok { color: #2f8a5b; } .bad { color: #c8463a; }
   #fileInput { display: none; }
   #statusBox { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
-  .mode { flex: none; border: 1px solid var(--accent); color: var(--accent); background: transparent; border-radius: 999px;
-    font-size: .74rem; font-weight: 700; padding: 3px 10px; letter-spacing: .03em; cursor: pointer; }
-  .mode.paath { border-color: var(--heavy); color: var(--heavy); }
+  .mode { flex: none; position: relative; width: 78px; height: 32px; border: none; border-radius: 999px; cursor: pointer;
+    background: #3a78c9; color: #fff; font-size: .74rem; font-weight: 700; letter-spacing: .02em; padding: 0; transition: background .2s; margin-left: auto; }
+  .mode .knob { position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: left .2s; }
+  .mode .lbl { position: absolute; top: 0; bottom: 0; left: 31px; right: 6px; display: flex; align-items: center; justify-content: center; transition: all .2s; }
+  .mode.paath { background: #e0861f; }
+  .mode.paath .knob { left: 49px; }
+  .mode.paath .lbl { left: 6px; right: 31px; }
+  #debugBtn { margin-left: 0; }
   .sheet.search { display: flex; flex-direction: column; height: 92vh; padding-bottom: 10px; }
   #qInput { font-family: 'Noto Sans Gurmukhi', 'Open Sans', sans-serif; font-size: 1.1rem; }
   #qResults { flex: 1; overflow-y: auto; min-height: 80px; border-top: 1px solid var(--line); }
@@ -95,7 +100,6 @@
   #kbd { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; padding-top: 8px; }
   #kbd button { font-family: 'Noto Sans Gurmukhi', sans-serif; font-size: 1.2rem; padding: 6px 0; min-height: 38px; border: 1px solid var(--line); background: var(--bg); color: var(--barText); border-radius: 8px; }
   #kbd button:active { background: var(--line); }
-  #debugBtn { margin-left: auto; }
   #findBtn { min-width: 52px; display: inline-flex; align-items: center; justify-content: center; padding: 6px 12px; }
   #findBtn svg { width: 24px; height: 24px; display: block; }
   #linesList .div { font-size: .72rem; color: var(--muted); text-align: center; padding: 10px 0 4px; letter-spacing: .08em; }
@@ -147,14 +151,14 @@
     #meter { flex: 1; }
     .btn.icon { min-width: 38px; padding: 6px 8px; }
   }
-  @media (max-width: 420px) { .btn.sm { padding: 6px 5px; font-size: .78rem; } .btn.icon { min-width: 28px; padding: 4px 4px; font-size: .82rem; } .barrow { gap: 4px; } #findBtn { padding: 7px 8px; font-size: .88rem; } #bar { padding-left: 6px; padding-right: 6px; } }
+  @media (max-width: 420px) { .btn.sm { padding: 6px 5px; font-size: .78rem; } .btn.icon { min-width: 28px; padding: 4px 4px; font-size: .82rem; } .barrow { gap: 4px; } #findBtn { padding: 7px 8px; font-size: .88rem; } #bar { padding-left: 6px; padding-right: 6px; }  .mode { width: 64px; height: 30px; font-size: .64rem; } .mode .knob { width: 22px; height: 22px; top: 4px; left: 4px; } .mode .lbl { left: 27px; right: 4px; } .mode.paath .knob { left: 38px; } .mode.paath .lbl { left: 4px; right: 27px; } #findBtn { min-width: 44px; padding: 6px 8px; } }
 </style>
 </head>
 <body>
 <div id="slide">
   <div id="placeholder">
     <b>Gurbani Auto Slides</b><br>
-    Press <b>🔍</b> near the kirtan. It listens until it knows the shabad, then stops.<br>Tap the <b>right side</b> of the screen for the next line, the <b>left side</b> to go back.<br><br>
+    Press 🔍. It listens until it knows the shabad, then stops.<br>Tap the right side of the screen for the next line, the left side to go back.<br><br>
     <span id="loadMsg">Loading Gurbani database…</span>
   </div>
 </div>
@@ -164,10 +168,11 @@
     <button id="findBtn" class="btn primary" disabled title="Find the shabad" aria-label="Find the shabad"></button>
     <button id="typeBtn" class="btn icon" title="Search by first letters" aria-label="Search by first letters"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 9.5h.01M9 9.5h.01M12 9.5h.01M15 9.5h.01M18 9.5h.01M6 12.5h.01M9 12.5h.01M12 12.5h.01M15 12.5h.01M18 12.5h.01M8 15.5h8"/></svg></button>
     <button id="rahaoBtn" class="btn sm" title="Go to Rahao (R)" disabled>Rahao</button>
-    <button id="blankBtn" class="btn sm" title="Blank the screen (B)">Blank</button>
     <button id="linesBtn" class="btn icon" title="All lines of this shabad" disabled>☰</button>
+    <button id="blankBtn" class="btn sm" title="Blank the screen (B)">Blank</button>
     <div id="meter"><i></i></div>
-    <div id="statusBox"><button id="modeBtn" class="mode" title="Tap to switch between kirtan and paath">Kirtan</button><div id="status"><span class="dot off"></span>Ready</div></div>
+    <div id="statusBox"><div id="status"><span class="dot off"></span>Ready</div></div>
+    <button id="modeBtn" class="mode" role="switch" aria-checked="false" title="Kirtan or paath — tap to switch"><span class="lbl">Kirtan</span><span class="knob"></span></button>
     <button id="debugBtn" class="btn icon mono" title="Console">&gt;_</button>
     <button id="setBtn" class="btn icon" title="Settings">⚙</button>
   </div>
@@ -243,10 +248,10 @@
   </div>
 </div>
 
-<script>window.APP_V = "13";</script>
-<script src="skeleton.js?v=13"></script>
-<script src="engine.js?v=13"></script>
-<script src="tracker.js?v=13"></script>
-<script src="app.js?v=13"></script>
+<script>window.APP_V = "14";</script>
+<script src="skeleton.js?v=14"></script>
+<script src="engine.js?v=14"></script>
+<script src="tracker.js?v=14"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>

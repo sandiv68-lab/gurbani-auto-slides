@@ -610,7 +610,7 @@ function openSearch() {
   runSearch();
 }
 $('typeBtn').onclick = openSearch;
-function drawMode() { const b = $('modeBtn'); b.textContent = S.mode === 'paath' ? 'Paath' : 'Kirtan'; b.className = 'mode' + (S.mode === 'paath' ? ' paath' : ''); }
+function drawMode() { const b = $('modeBtn'), p = S.mode === 'paath'; b.querySelector('.lbl').textContent = p ? 'Paath' : 'Kirtan'; b.className = 'mode' + (p ? ' paath' : ''); b.setAttribute('aria-checked', p); }
 $('modeBtn').onclick = e => { e.stopPropagation(); S.mode = S.mode === 'paath' ? 'kirtan' : 'paath'; save(); drawMode(); log('Mode: ' + S.mode + (S.mode === 'paath' ? ' (4-second chunks, jumps ahead)' : ' (6-second chunks)')); };
 drawMode();
 $('closeSearch').onclick = () => $('searchSheet').classList.remove('on');
@@ -624,7 +624,7 @@ call('init').then(meta => {
   META = meta;
   tracker = new GTracker.Tracker(engineApi, meta, { lockEvidence: 0.9, immScore: 0.85, immRaw: 22 });
   tracker.setSources(selectedSources());
-  $('loadMsg').textContent = S.key ? 'Ready.' : 'Ready. First, add your Gemini key in ⚙ Settings.';
+  $('loadMsg').textContent = S.key ? 'Ready.' : 'Ready? First, add your API key in ⚙ Settings.';
   $('findBtn').disabled = false; rahaoSet = new Set(meta.rahao); setStatus();
   log(`Database loaded: ${meta.total.toLocaleString()} lines`);
 }).catch(e => { $('loadMsg').textContent = 'Could not load the database: ' + e.message; });
