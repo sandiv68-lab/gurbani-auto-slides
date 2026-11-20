@@ -1,4 +1,4 @@
-# Gurbani Auto Slides (test version)
+# Gurbani Finder (test version)
 
 Listens to kirtan, works out which shabad is being sung and shows the current line
 (Gurmukhi with vishraams, English translation, transliteration) — no operator needed.
