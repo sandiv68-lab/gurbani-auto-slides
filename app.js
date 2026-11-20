@@ -15,7 +15,7 @@ const store = {
 const S = {
   key: store.get('key', ''), tr: store.get('tr', true), tl: store.get('tl', true), pa: store.get('pa', false),
   next: store.get('next', false), dark: store.get('dark', false), blank: store.get('blank', false),
-  size: store.get('size', 1), follow: store.get('follow', false), lang: store.get('lang', 'pa-IN'), vad: store.get('vad', 'manual'), debug: store.get('debug', true),
+  size: store.get('size', 1), follow: store.get('follow', false), mode: store.get('mode', 'kirtan'), lang: store.get('lang', 'pa-IN'), vad: store.get('vad', 'manual'), debug: store.get('debug', true),
   rows: store.get('rows', null),
   srcs: store.get('srcs', { src1: true, src3: true, src2: true, src5: true }),
 };
@@ -176,6 +176,22 @@ function chooseShabad(r) {
   setStatus();
 }
 
+// ---------- paath: make up for the delay ----------
+let lastAheadHeard = -1, lastAheadK = -1;
+async function aheadOf(heard, wasFinal) {
+  if (S.mode !== 'paath') return { line: heard, k: 0 };
+  const sec = chunkLen() / 16000;
+  const wps = finalsHist.length ? Math.min(5, Math.max(1, finalsHist.slice(-3).reduce((a, b) => a + b, 0) / (Math.min(3, finalsHist.length) * sec))) : 2.5;
+  const delay = (wasFinal ? (Date.now() - lastChunkEnd) / 1000 : 1.5) + 0.5;
+  const d = await getLine(heard);
+  const words = L => L[0].replace(/[;,.॥।0-9੦-੯]/g, ' ').split(/\s+/).filter(Boolean).length;
+  let budget = delay * wps - words(d.line) / 2, k = 0;
+  while (k < 3 && d.lines[d.off + k + 1] && budget >= words(d.lines[d.off + k + 1]) / 2) { budget -= words(d.lines[d.off + k + 1]); k++; }
+  if (heard !== lastAheadHeard || k !== lastAheadK) log(`Paath: +${k} line${k === 1 ? '' : 's'} ahead (delay ${delay.toFixed(1)}s, ${wps.toFixed(1)} words/s)`);
+  lastAheadHeard = heard; lastAheadK = k;
+  return { line: heard + k, k };
+}
+
 // ---------- navigation ----------
 function shabadEnd(s) { return s + 1 < META.start.length ? META.start[s + 1] : META.total; }
 function goLine(l) {
@@ -253,7 +269,7 @@ let rahaoSet = new Set();
 let finalText = '', interimText = '', lastProcessed = '', nInterim = 0, nFinal = 0, nWords = 0;
 function onTranscript(kind, text) {
   if (!text) return;
-  if (kind === 'final') { finalText = (finalText + ' ' + text).slice(-1200); interimText = ''; nFinal++; nWords += text.trim().split(/\s+/).length; }
+  if (kind === 'final') { finalText = (finalText + ' ' + text).slice(-1200); interimText = ''; nFinal++; const nw = text.trim().split(/\s+/).length; nWords += nw; finalsHist.push(nw); if (finalsHist.length > 4) finalsHist.shift(); }
   else { interimText = text; nInterim++; }
   $('dbgCount').textContent = `Received ${nFinal} finished + ${nInterim} live updates · ${nWords} words`;
   const full = (finalText + ' ' + interimText).trim();
@@ -285,8 +301,11 @@ async function tick() {
         foundCands = [{ shabad: snap.shabad, line: snap.line, score: 1 }, ...others].slice(0, 3);
         showCands(foundCands, 'Found:', snap.shabad);
       }
-      goLine(snap.line);
+      const heard = snap.line, wasFinal = isFinal;
       if (!S.follow) stopListening();
+      const a = await aheadOf(heard, wasFinal);
+      goLine(a.line);
+      if (tracker) tracker.line = heard;
     }
     const c = (snap.candidates || []).slice(0, 3).map(r => `${(SRC_NAME[META.src[r.shabad]] || ['?'])[1]} ${META.page[r.shabad]}:${r.score.toFixed(2)}`).join('  ');
     $('dbgState').textContent = `Mode: ${snap.mode === 'locked' ? 'following' : 'searching'}${snap.shabad >= 0 ? ' · shabad ' + META.id[snap.shabad] : ''}${c ? ' · top: ' + c : ''}`;
@@ -302,11 +321,12 @@ let lockedShabad = -1, vocabShabad = -1;
 
 // ---------- Gemini Live ----------
 let manualRejected = false, chunkSamples = 0;
-const CHUNK = 16000 * 6;
+const chunkLen = () => 16000 * (S.mode === 'paath' ? 4 : 6);
+let lastChunkEnd = 0; const finalsHist = [];
 let running = false, ready = false, connError = '', active = null, rotateTimer = null, reconnectDelay = 1000;
 function authParam(key) { return 'key=' + encodeURIComponent(key); }
 
-function openSession(vocab, manual = S.vad === 'manual' && !manualRejected) {
+function openSession(vocab, manual = !manualRejected) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`${WS_BASE}?${authParam(S.key)}`);
     let settled = false;
@@ -355,7 +375,7 @@ async function rotate() {
     let ws;
     try { ws = await openSession(vocab); }
     catch (e) {
-      if (S.vad === 'manual' && !manualRejected && !/key|API|permission|auth/i.test(e.message)) {
+      if (!manualRejected && !/key|API|permission|auth/i.test(e.message)) {
         manualRejected = true; log('Chunk mode refused (' + e.message + ') — using Google auto mode');
         ws = await openSession(vocab, false);
       } else throw e;
@@ -363,7 +383,7 @@ async function rotate() {
     if (!running) { ws.close(); return; }
     const old = active; active = ws; ready = true; connError = ''; reconnectDelay = 1000;
     chunkSamples = 0;
-    if (ws._manual) { ws.send(JSON.stringify({ realtimeInput: { activityStart: {} } })); log('Listening in 6-second chunks'); }
+    if (ws._manual) { ws.send(JSON.stringify({ realtimeInput: { activityStart: {} } })); lastChunkEnd = Date.now(); log(`Listening in ${chunkLen() / 16000}-second chunks (${S.mode})`); }
     if (old && old.readyState === WebSocket.OPEN) {
       try { old.send(JSON.stringify(old._manual ? { realtimeInput: { activityEnd: {} } } : { realtimeInput: { audioStreamEnd: true } })); } catch {}
       setTimeout(() => { try { old.close(); } catch {} }, 3000);
@@ -386,8 +406,8 @@ function sendPCM(int16) {
   active.send(JSON.stringify({ realtimeInput: { audio: { data: btoa(bin), mimeType: 'audio/pcm;rate=16000' } } }));
   if (active._manual) {
     chunkSamples += int16.length;
-    if (chunkSamples >= CHUNK) {
-      chunkSamples = 0;
+    if (chunkSamples >= chunkLen()) {
+      chunkSamples = 0; lastChunkEnd = Date.now();
       active.send(JSON.stringify({ realtimeInput: { activityEnd: {} } }));
       active.send(JSON.stringify({ realtimeInput: { activityStart: {} } }));
     }
@@ -454,7 +474,7 @@ async function startListening() {
   if (!ctx) await startAudio();
   running = true; ready = false; connError = '';
   tracker.reset(); tracker.setSources(selectedSources());
-  finalText = interimText = lastProcessed = ''; lockedShabad = -1; nInterim = nFinal = nWords = 0; lastFinalCount = 0;
+  finalText = interimText = lastProcessed = ''; lockedShabad = -1; nInterim = nFinal = nWords = 0; lastFinalCount = 0; finalsHist.length = 0;
   $('dbgText').textContent = '—'; $('dbgGuess').textContent = ''; $('cands').innerHTML = ''; foundCands = [];
   try { wakeLock = wakeLock || await navigator.wakeLock.request('screen'); } catch {}
   setStatus();
@@ -528,7 +548,7 @@ $('fileInput').onchange = async () => {
 };
 new ResizeObserver(() => document.documentElement.style.setProperty('--barH', $('bar').offsetHeight + 'px')).observe($('bar'));
 const bind = (id, k, after) => { const el = $(id); if (el.type === 'checkbox') { el.checked = S[k]; el.onchange = () => { S[k] = el.checked; save(); applyLook(); after && after(); }; } else { el.value = S[k]; el.oninput = () => { S[k] = el.type === 'range' ? +el.value : el.value; save(); applyLook(); after && after(); }; } };
-bind('optNext', 'next', () => render(shown, true)); bind('optFollow', 'follow'); bind('optDark', 'dark'); bind('optBlank', 'blank'); bind('optSize', 'size'); bind('optLang', 'lang'); bind('optVad', 'vad', () => { manualRejected = false; });
+bind('optNext', 'next', () => render(shown, true)); bind('optFollow', 'follow'); bind('optDark', 'dark'); bind('optBlank', 'blank'); bind('optSize', 'size'); bind('optLang', 'lang');
 document.querySelectorAll('[data-src]').forEach(cb => { cb.checked = cb.id in S.srcs ? S.srcs[cb.id] !== false : !cb.dataset.off; cb.onchange = () => { S.srcs[cb.id] = cb.checked; save(); }; });
 function drawRowList() {
   $('rowList').innerHTML = S.rows.map((r, i) => `<div class="rowitem"><input type="checkbox" id="row_${r.k}" ${r.on ? 'checked' : ''}><label for="row_${r.k}">${ROW_NAME[r.k]}</label>
@@ -590,6 +610,9 @@ function openSearch() {
   runSearch();
 }
 $('typeBtn').onclick = openSearch;
+function drawMode() { const b = $('modeBtn'); b.textContent = S.mode === 'paath' ? 'Paath' : 'Kirtan'; b.className = 'mode' + (S.mode === 'paath' ? ' paath' : ''); }
+$('modeBtn').onclick = e => { e.stopPropagation(); S.mode = S.mode === 'paath' ? 'kirtan' : 'paath'; save(); drawMode(); log('Mode: ' + S.mode + (S.mode === 'paath' ? ' (4-second chunks, jumps ahead)' : ' (6-second chunks)')); };
+drawMode();
 $('closeSearch').onclick = () => $('searchSheet').classList.remove('on');
 $('searchSheet').addEventListener('click', e => { if (e.target === $('searchSheet')) $('searchSheet').classList.remove('on'); });
 $('qInput').addEventListener('input', runSearch);

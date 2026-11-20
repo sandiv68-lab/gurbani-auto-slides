@@ -81,6 +81,10 @@
   .note { font-size: .8rem; color: var(--muted); line-height: 1.5; }
   .ok { color: #2f8a5b; } .bad { color: #c8463a; }
   #fileInput { display: none; }
+  #statusBox { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+  .mode { flex: none; border: 1px solid var(--accent); color: var(--accent); background: transparent; border-radius: 999px;
+    font-size: .74rem; font-weight: 700; padding: 3px 10px; letter-spacing: .03em; cursor: pointer; }
+  .mode.paath { border-color: var(--heavy); color: var(--heavy); }
   .sheet.search { display: flex; flex-direction: column; height: 92vh; padding-bottom: 10px; }
   #qInput { font-family: 'Noto Sans Gurmukhi', 'Open Sans', sans-serif; font-size: 1.1rem; }
   #qResults { flex: 1; overflow-y: auto; min-height: 80px; border-top: 1px solid var(--line); }
@@ -137,7 +141,8 @@
   @media (max-width: 560px) {
     .barrow { flex-wrap: wrap; gap: 6px; }
     #findBtn { flex: none; }
-    #status { order: 10; flex-basis: 100%; font-size: .85rem; }
+    #statusBox { order: 10; flex-basis: 100%; }
+    #status { font-size: .85rem; }
     #status br { display: none; }
     #meter { flex: 1; }
     .btn.icon { min-width: 38px; padding: 6px 8px; }
@@ -162,7 +167,7 @@
     <button id="blankBtn" class="btn sm" title="Blank the screen (B)">Blank</button>
     <button id="linesBtn" class="btn icon" title="All lines of this shabad" disabled>☰</button>
     <div id="meter"><i></i></div>
-    <div id="status"><span class="dot off"></span>Ready</div>
+    <div id="statusBox"><button id="modeBtn" class="mode" title="Tap to switch between kirtan and paath">Kirtan</button><div id="status"><span class="dot off"></span>Ready</div></div>
     <button id="debugBtn" class="btn icon mono" title="Console">&gt;_</button>
     <button id="setBtn" class="btn icon" title="Settings">⚙</button>
   </div>
@@ -230,8 +235,6 @@
     <div class="row"><label for="src5">Bhai Nand Lal Ji</label><input type="checkbox" id="src5" data-src="5,6,7,8"></div>
 
     <h3>Speech recognition</h3>
-    <div class="row"><label for="optVad">Listening mode</label>
-      <select id="optVad"><option value="manual">6-second chunks (best for kirtan)</option><option value="auto">Google decides when someone is speaking</option></select></div>
     <div class="row"><label for="optLang">Language code</label>
       <select id="optLang"><option value="pa-IN">pa-IN (Punjabi)</option><option value="pa-Guru-IN">pa-Guru-IN (Punjabi, Gurmukhi)</option><option value="">Auto-detect</option></select></div>
 
@@ -240,10 +243,10 @@
   </div>
 </div>
 
-<script>window.APP_V = "12";</script>
-<script src="skeleton.js?v=12"></script>
-<script src="engine.js?v=12"></script>
-<script src="tracker.js?v=12"></script>
-<script src="app.js?v=12"></script>
+<script>window.APP_V = "13";</script>
+<script src="skeleton.js?v=13"></script>
+<script src="engine.js?v=13"></script>
+<script src="tracker.js?v=13"></script>
+<script src="app.js?v=13"></script>
 </body>
 </html>
